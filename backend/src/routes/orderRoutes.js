@@ -8,6 +8,12 @@ const schemas = require('../validators/orderValidator');
 const router = express.Router();
 
 router.use(requireAuth, requireRole('BUYER', 'SUPPLIER'));
+router.post(
+  '/',
+  requireRole('BUYER'),
+  validateBody(schemas.createOrderSchema),
+  controller.create
+);
 router.get('/', validateQuery(schemas.orderListQuerySchema), controller.listMine);
 router.get('/:id', validateParams(schemas.orderIdParamSchema), controller.getOne);
 router.post(

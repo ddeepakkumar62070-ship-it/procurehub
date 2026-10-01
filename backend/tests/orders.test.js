@@ -3,9 +3,17 @@ jest.mock('../src/services/authService', () => ({
 }));
 
 jest.mock('../src/services/orderTransitionService', () => ({
+  createFromAcceptedQuotation: jest.fn(),
   listPurchaseOrders: jest.fn(),
   getPurchaseOrder: jest.fn(),
   transitionPurchaseOrder: jest.fn(),
+}));
+jest.mock('../src/services/idempotencyService', () => ({
+  executeIdempotently: jest.fn(),
+}));
+jest.mock('../src/services/quotationService', () => ({
+  acceptQuotationInTransaction: jest.fn(),
+  throwAcceptanceFailure: jest.fn(),
 }));
 
 const request = require('supertest');
@@ -13,6 +21,8 @@ const jwt = require('jsonwebtoken');
 const app = require('../src/app');
 const authService = require('../src/services/authService');
 const orderTransitionService = require('../src/services/orderTransitionService');
+const idempotencyService = require('../src/services/idempotencyService');
+const quotationService = require('../src/services/quotationService');
 const env = require('../src/config/env');
 
 const buyer = {
@@ -101,5 +111,47 @@ describe('Purchase order routes', () => {
 
     expect(response.status).toBe(403);
     expect(orderTransitionService.listPurchaseOrders).not.toHaveBeenCalled();
+  });
+
+  it('creates an order through an idempotent request using the quotation acceptance flow', async () => {
+    authService.getActiveUser.mockResolvedValue(buyer);
+    idempotencyService.executeIdempotently.mockImplementation(async ({ operation, ...input }) => {
+      expect(input).toMatchObject({
+        userId: buyer.id,
+        idempotencyKey: 'abc123',
+        request: { quotationId: orderId },
+      });
+      const body = await operation({ query: jest.fn() });
+      return { ...body, replayed: false };
+    });
+    quotationService.acceptQuotationInTransaction.mockResolvedValue({
+      quotation: { id: orderId, status: 'ACCEPTED' },
+      purchaseOrder: { id: 'new-order-id', status: 'PO_CREATED' },
+    });
+
+    const response = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${tokenFor(buyer)}`)
+      .set('Idempotency-Key', 'abc123')
+      .send({ quotationId: orderId });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.purchaseOrder.id).toBe('new-order-id');
+    expect(quotationService.acceptQuotationInTransaction).toHaveBeenCalledWith(
+      expect.any(Object),
+      buyer.id,
+      orderId
+    );
+  });
+
+  it('requires an Idempotency-Key for order creation', async () => {
+    authService.getActiveUser.mockResolvedValue(buyer);
+    const response = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${tokenFor(buyer)}`)
+      .send({ quotationId: orderId });
+
+    expect(response.status).toBe(400);
+    expect(idempotencyService.executeIdempotently).not.toHaveBeenCalled();
   });
 });

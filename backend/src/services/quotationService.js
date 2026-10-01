@@ -298,88 +298,88 @@ async function getQuotationForUser(user, quotationId) {
   return { ...quotation, items: await getQuotationItems(quotationId) };
 }
 
-async function acceptQuotation(buyerUserId, quotationId) {
-  const result = await withTransaction(async (client) => {
-    const quotationLookup = await client.query(
-      'SELECT purchase_request_id FROM quotations WHERE id = $1',
-      [quotationId]
-    );
-    if (!quotationLookup.rows[0]) throw new NotFoundError('Quotation not found');
-    const purchaseRequestId = quotationLookup.rows[0].purchase_request_id;
+async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
+  const quotationLookup = await client.query(
+    'SELECT purchase_request_id FROM quotations WHERE id = $1',
+    [quotationId]
+  );
+  if (!quotationLookup.rows[0]) throw new NotFoundError('Quotation not found');
+  const purchaseRequestId = quotationLookup.rows[0].purchase_request_id;
 
-    const requestResult = await client.query(
-      `SELECT id, status
-       FROM purchase_requests
-       WHERE id = $1 AND buyer_user_id = $2
-       FOR UPDATE`,
-      [purchaseRequestId, buyerUserId]
-    );
-    if (!requestResult.rows[0]) throw new NotFoundError('Quotation not found');
-    const purchaseRequest = requestResult.rows[0];
-    if (purchaseRequest.status === 'CANCELLED') {
-      return { failure: 'PURCHASE_REQUEST_CANCELLED' };
-    }
-    if (purchaseRequest.status === 'QUOTATION_ACCEPTED') {
-      return { failure: 'QUOTATION_ALREADY_ACCEPTED' };
-    }
+  const requestResult = await client.query(
+    `SELECT id, status
+     FROM purchase_requests
+     WHERE id = $1 AND buyer_user_id = $2
+     FOR UPDATE`,
+    [purchaseRequestId, buyerUserId]
+  );
+  if (!requestResult.rows[0]) throw new NotFoundError('Quotation not found');
+  const purchaseRequest = requestResult.rows[0];
+  if (purchaseRequest.status === 'CANCELLED') {
+    return { failure: 'PURCHASE_REQUEST_CANCELLED' };
+  }
+  if (purchaseRequest.status === 'QUOTATION_ACCEPTED') {
+    return { failure: 'QUOTATION_ALREADY_ACCEPTED' };
+  }
 
-    const selectedResult = await client.query(
-      `SELECT id, status, valid_until
-       FROM quotations
-       WHERE id = $1 AND purchase_request_id = $2
-       FOR UPDATE`,
-      [quotationId, purchaseRequestId]
-    );
-    const selected = selectedResult.rows[0];
-    if (selected.status !== 'SUBMITTED') {
-      return { failure: `QUOTATION_${selected.status}` };
-    }
-    if (new Date(selected.valid_until).getTime() <= Date.now()) {
-      await client.query(
-        `UPDATE quotations
-         SET status = 'EXPIRED', expired_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [selected.id]
-      );
-      return { failure: 'QUOTATION_EXPIRED' };
-    }
-
-    const accepted = await client.query(
+  const selectedResult = await client.query(
+    `SELECT id, status, valid_until
+     FROM quotations
+     WHERE id = $1 AND purchase_request_id = $2
+     FOR UPDATE`,
+    [quotationId, purchaseRequestId]
+  );
+  const selected = selectedResult.rows[0];
+  if (selected.status !== 'SUBMITTED') {
+    return { failure: `QUOTATION_${selected.status}` };
+  }
+  if (new Date(selected.valid_until).getTime() <= Date.now()) {
+    await client.query(
       `UPDATE quotations
-       SET status = 'ACCEPTED', accepted_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND status = 'SUBMITTED'
-       RETURNING id, purchase_request_id, supplier_user_id, status, currency,
-                 delivery_time_days, valid_until, subtotal, accepted_at`,
+       SET status = 'EXPIRED', expired_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
       [selected.id]
     );
-    if (accepted.rowCount !== 1) return { failure: 'QUOTATION_NOT_SUBMITTED' };
+    return { failure: 'QUOTATION_EXPIRED' };
+  }
 
-    await client.query(
-      `UPDATE quotations
-       SET status = CASE WHEN valid_until <= NOW() THEN 'EXPIRED' ELSE 'REJECTED' END,
-           expired_at = CASE WHEN valid_until <= NOW() THEN NOW() ELSE NULL END,
-           rejected_at = CASE WHEN valid_until > NOW() THEN NOW() ELSE NULL END,
-           updated_at = NOW()
-       WHERE purchase_request_id = $1
-         AND id <> $2
-         AND status = 'SUBMITTED'`,
-      [purchaseRequestId, selected.id]
-    );
-    await client.query(
-      `UPDATE purchase_requests
-       SET status = 'QUOTATION_ACCEPTED', updated_at = NOW()
-       WHERE id = $1`,
-      [purchaseRequestId]
-    );
-    const purchaseOrder = await orderTransitionService.createFromAcceptedQuotation(client, {
-      quotationId: selected.id,
-      purchaseRequestId,
-      buyerUserId,
-    });
-    return { quotation: accepted.rows[0], purchaseOrder };
+  const accepted = await client.query(
+    `UPDATE quotations
+     SET status = 'ACCEPTED', accepted_at = NOW(), updated_at = NOW()
+     WHERE id = $1 AND status = 'SUBMITTED'
+     RETURNING id, purchase_request_id, supplier_user_id, status, currency,
+               delivery_time_days, valid_until, subtotal, accepted_at`,
+    [selected.id]
+  );
+  if (accepted.rowCount !== 1) return { failure: 'QUOTATION_NOT_SUBMITTED' };
+
+  await client.query(
+    `UPDATE quotations
+     SET status = CASE WHEN valid_until <= NOW() THEN 'EXPIRED' ELSE 'REJECTED' END,
+         expired_at = CASE WHEN valid_until <= NOW() THEN NOW() ELSE NULL END,
+         rejected_at = CASE WHEN valid_until > NOW() THEN NOW() ELSE NULL END,
+         updated_at = NOW()
+     WHERE purchase_request_id = $1
+       AND id <> $2
+       AND status = 'SUBMITTED'`,
+    [purchaseRequestId, selected.id]
+  );
+  await client.query(
+    `UPDATE purchase_requests
+     SET status = 'QUOTATION_ACCEPTED', updated_at = NOW()
+     WHERE id = $1`,
+    [purchaseRequestId]
+  );
+  const purchaseOrder = await orderTransitionService.createFromAcceptedQuotation(client, {
+    quotationId: selected.id,
+    purchaseRequestId,
+    buyerUserId,
   });
+  return { quotation: accepted.rows[0], purchaseOrder };
+}
 
-  if (result.failure) {
+function throwAcceptanceFailure(failure) {
+  if (failure) {
     const messages = {
       PURCHASE_REQUEST_CANCELLED: ['A quotation cannot be accepted after the request is cancelled', 'PURCHASE_REQUEST_CANCELLED'],
       QUOTATION_ALREADY_ACCEPTED: ['A quotation has already been accepted for this request', 'QUOTATION_ALREADY_ACCEPTED'],
@@ -388,12 +388,19 @@ async function acceptQuotation(buyerUserId, quotationId) {
       QUOTATION_ACCEPTED: ['This quotation has already been accepted', 'QUOTATION_ALREADY_ACCEPTED'],
       QUOTATION_NOT_SUBMITTED: ['This quotation cannot be accepted in its current state', 'QUOTATION_NOT_ACCEPTABLE'],
     };
-    const [message, code] = messages[result.failure] || [
+    const [message, code] = messages[failure] || [
       'This quotation cannot be accepted in its current state',
       'QUOTATION_NOT_ACCEPTABLE',
     ];
     throw new ConflictError(message, code);
   }
+}
+
+async function acceptQuotation(buyerUserId, quotationId) {
+  const result = await withTransaction((client) => (
+    acceptQuotationInTransaction(client, buyerUserId, quotationId)
+  ));
+  throwAcceptanceFailure(result.failure);
   return { ...result.quotation, purchaseOrder: result.purchaseOrder };
 }
 
@@ -486,6 +493,8 @@ module.exports = {
   listBuyerQuotations,
   listSupplierQuotations,
   getQuotationForUser,
+  acceptQuotationInTransaction,
+  throwAcceptanceFailure,
   acceptQuotation,
   rejectQuotation,
   expireOverdueForRequest,
