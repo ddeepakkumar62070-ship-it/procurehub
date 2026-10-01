@@ -5,7 +5,8 @@ const logger = require('./config/logger');
 const { initSocket } = require('./config/socket');
 const { connectRedis } = require('./config/redis');
 const { query } = require('./config/db');
-const { startQuotationExpiryWorker } = require('./jobs/quotationExpiryWorker');
+const { startQuotationExpiryWorker } = require('./workers/quotationExpiryWorker');
+const { startBackgroundWorkers } = require('./workers/backgroundWorkers');
 
 async function startServer() {
   try {
@@ -20,6 +21,7 @@ async function startServer() {
     }
 
     await startQuotationExpiryWorker();
+    await startBackgroundWorkers();
 
     server.listen(env.port, () => {
       logger.info(`ProcureHub backend listening on http://localhost:${env.port}`);

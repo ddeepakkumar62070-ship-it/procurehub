@@ -15,6 +15,7 @@ const quotationRoutes = require('./routes/quotationRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
 const errorMiddleware = require('./middleware/errorMiddleware');
+const rateLimit = require('./middleware/rateLimitMiddleware');
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/health', healthRoutes);
+app.use('/api', rateLimit());
 app.use('/api/auth', authRoutes);
 app.use('/api/profiles', profileRoutes);
 app.use('/api/catalog', catalogRoutes);

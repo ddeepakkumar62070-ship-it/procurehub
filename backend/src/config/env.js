@@ -11,6 +11,9 @@ const env = {
   dbPassword: process.env.DB_PASSWORD || 'postgres',
   redisHost: process.env.REDIS_HOST || 'localhost',
   redisPort: Number(process.env.REDIS_PORT || 6379),
+  cacheTtlSeconds: Number(process.env.CACHE_TTL_SECONDS || 60),
+  rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 120),
+  rateLimitWindowSeconds: Number(process.env.RATE_LIMIT_WINDOW_SECONDS || 60),
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   jwtSecret: process.env.JWT_SECRET || 'dev_secret_change_me',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret_change_me',
@@ -23,6 +26,13 @@ const env = {
 
 if (!Number.isFinite(env.orderReservationTtlHours) || env.orderReservationTtlHours <= 0) {
   throw new Error('ORDER_RESERVATION_TTL_HOURS must be a positive number');
+}
+if (!Number.isFinite(env.cacheTtlSeconds) || env.cacheTtlSeconds <= 0) {
+  throw new Error('CACHE_TTL_SECONDS must be a positive number');
+}
+if (!Number.isInteger(env.rateLimitMax) || env.rateLimitMax <= 0
+  || !Number.isInteger(env.rateLimitWindowSeconds) || env.rateLimitWindowSeconds <= 0) {
+  throw new Error('Rate limit settings must be positive integers');
 }
 
 if (env.nodeEnv === 'production') {

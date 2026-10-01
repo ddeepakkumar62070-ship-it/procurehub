@@ -4,7 +4,7 @@ jest.mock('../src/services/authService', () => ({
 jest.mock('../src/services/invoiceService', () => ({
   listInvoices: jest.fn(),
   getInvoice: jest.fn(),
-  invoicePdf: jest.fn(),
+  getInvoicePdf: jest.fn(),
   payInvoice: jest.fn(),
 }));
 
@@ -62,7 +62,7 @@ describe('Invoice routes', () => {
       invoice_number: 'INV-20261002-00000001',
       status: 'UNPAID',
     });
-    invoiceService.invoicePdf.mockResolvedValue(Buffer.from('%PDF-test'));
+    invoiceService.getInvoicePdf.mockResolvedValue(Buffer.from('%PDF-test'));
     const details = await request(app)
       .get(`/api/invoices/${invoiceId}`)
       .set('Authorization', `Bearer ${tokenFor(buyer)}`);

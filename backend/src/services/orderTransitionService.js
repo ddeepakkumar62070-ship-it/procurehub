@@ -3,6 +3,10 @@ const { ConflictError, ForbiddenError, NotFoundError } = require('../utils/error
 const OrderStateMachine = require('./orderStateMachine');
 const inventoryReservationService = require('./inventoryReservationService');
 const invoiceService = require('./invoiceService');
+const jobOutboxService = require('./jobOutboxService');
+const { QUEUE_NAMES } = require('../queues/queueRegistry');
+const env = require('../config/env');
+const redisData = require('../config/redisData');
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -237,7 +241,8 @@ async function listPurchaseOrders(actor, filters) {
 }
 
 async function transitionPurchaseOrder(orderId, actor, input) {
-  return withTransaction(async (client) => {
+  let invoiceId = null;
+  const updatedOrder = await withTransaction(async (client) => {
     const { order, actorRole } = await getOrderHeader(
       orderId,
       actor,
@@ -255,7 +260,8 @@ async function transitionPurchaseOrder(orderId, actor, input) {
     }
 
     if (input.status === 'INVOICE_GENERATED') {
-      await invoiceService.createForOrder(client, orderId);
+      const invoice = await invoiceService.createForOrder(client, orderId);
+      invoiceId = invoice.id;
     }
     if (input.status === 'PAID') {
       const invoice = await client.query(
@@ -306,8 +312,25 @@ async function transitionPurchaseOrder(orderId, actor, input) {
        RETURNING id, order_number, status, updated_at`,
       [orderId, input.status]
     );
+    if (env.nodeEnv !== 'test') {
+      await jobOutboxService.addOrderStatusNotifications(client, orderId, input.status);
+      if (invoiceId) {
+        await jobOutboxService.addJob(client, {
+          queueName: QUEUE_NAMES.invoiceGeneration,
+          jobName: 'generate-invoice-pdf',
+          jobId: `invoice-pdf-${invoiceId}`,
+          payload: { invoiceId },
+        });
+      }
+    }
     return updated.rows[0];
   });
+  if (env.nodeEnv !== 'test') {
+    if (['CONFIRMED', 'SHIPPED', 'CANCELLED', 'REJECTED'].includes(input.status)) {
+      await redisData.invalidateReadCache();
+    }
+  }
+  return updatedOrder;
 }
 
 module.exports = {

@@ -23,7 +23,7 @@ async function getOne(req, res) {
 
 async function getPdf(req, res) {
   const invoice = await invoiceService.getInvoice(req.validatedParams.id, req.user);
-  const pdf = await invoiceService.invoicePdf(invoice);
+  const pdf = await invoiceService.getInvoicePdf(req.validatedParams.id, req.user);
   res.set({
     'Content-Type': 'application/pdf',
     'Content-Disposition': `attachment; filename="${invoice.invoice_number}.pdf"`,

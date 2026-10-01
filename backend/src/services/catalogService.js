@@ -1,5 +1,20 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, NotFoundError, ValidationError } = require('../utils/errors');
+const env = require('../config/env');
+const redisData = require('../config/redisData');
+
+async function cacheReadThrough(key, load) {
+  const version = await redisData.getCacheVersion();
+  if (version !== null) {
+    const cacheKey = `procurehub:cache:${version}:${key}`;
+    const cached = await redisData.getCachedJson(cacheKey);
+    if (cached !== null) return cached;
+    const value = await load();
+    await redisData.setCachedJson(cacheKey, value, env.cacheTtlSeconds);
+    return value;
+  }
+  return load();
+}
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -27,13 +42,15 @@ function handleUniqueViolation(error, message) {
 }
 
 async function listCategories() {
-  const result = await query(
-    `SELECT id, parent_category_id, name, slug, description
-     FROM categories
-     WHERE is_active = TRUE AND deleted_at IS NULL
-     ORDER BY name`
-  );
-  return result.rows;
+  return cacheReadThrough('catalog:categories', async () => {
+    const result = await query(
+      `SELECT id, parent_category_id, name, slug, description
+       FROM categories
+       WHERE is_active = TRUE AND deleted_at IS NULL
+       ORDER BY name`
+    );
+    return result.rows;
+  });
 }
 
 async function createCategory(input) {
@@ -44,6 +61,7 @@ async function createCategory(input) {
        RETURNING id, parent_category_id, name, slug, description`,
       [input.parentCategoryId || null, input.name, input.slug, input.description || null]
     );
+    await redisData.invalidateReadCache();
     return result.rows[0];
   } catch (error) {
     handleUniqueViolation(error, 'A category with this slug already exists');
@@ -73,6 +91,7 @@ async function updateCategory(id, input) {
       values
     );
     if (!result.rows[0]) throw new NotFoundError('Category not found');
+    await redisData.invalidateReadCache();
     return result.rows[0];
   } catch (error) {
     handleUniqueViolation(error, 'A category with this slug already exists');
@@ -88,6 +107,7 @@ async function deactivateCategory(id) {
     [id]
   );
   if (!result.rows[0]) throw new NotFoundError('Category not found');
+  await redisData.invalidateReadCache();
   return { id: result.rows[0].id, deactivated: true };
 }
 
@@ -102,6 +122,7 @@ async function createProduct(input) {
       [input.categoryId, input.name, input.sku, input.description || null]
     );
     if (!result.rows[0]) throw new ValidationError('An active category is required');
+    await redisData.invalidateReadCache();
     return result.rows[0];
   } catch (error) {
     handleUniqueViolation(error, 'A product with this SKU already exists');
@@ -139,6 +160,7 @@ async function updateProduct(id, input) {
       values
     );
     if (!result.rows[0]) throw new NotFoundError('Product not found or category is inactive');
+    await redisData.invalidateReadCache();
     return result.rows[0];
   } catch (error) {
     handleUniqueViolation(error, 'A product with this SKU already exists');
@@ -153,6 +175,7 @@ async function deactivateProduct(id) {
     [id]
   );
   if (!result.rows[0]) throw new NotFoundError('Product not found');
+  await redisData.invalidateReadCache();
   return { id: result.rows[0].id, deactivated: true };
 }
 
@@ -208,6 +231,7 @@ function buildProductFilters(filters) {
 }
 
 async function listProducts(filters) {
+  return cacheReadThrough(`catalog:products:${JSON.stringify(filters)}`, async () => {
   const { values, where } = buildProductFilters(filters);
   const countResult = await query(
     `SELECT COUNT(*)::INTEGER AS total
@@ -274,9 +298,11 @@ async function listProducts(filters) {
     total,
     totalPages: Math.ceil(total / filters.limit),
   };
+  });
 }
 
 async function getProduct(id) {
+  return cacheReadThrough(`catalog:product:${id}`, async () => {
   const result = await query(
     `SELECT p.id, p.category_id, c.name AS category_name, c.slug AS category_slug,
             p.name, p.sku, p.description, p.created_at
@@ -305,11 +331,12 @@ async function getProduct(id) {
     [id]
   );
   return { ...product, supplierProducts: offers.rows };
+  });
 }
 
 async function createSupplierProduct(supplierUserId, input) {
   try {
-    return await withTransaction(async (client) => {
+    const offer = await withTransaction(async (client) => {
       const product = await client.query(
         'SELECT id FROM products WHERE id = $1 AND is_active = TRUE AND deleted_at IS NULL',
         [input.productId]
@@ -338,6 +365,8 @@ async function createSupplierProduct(supplierUserId, input) {
         reorder_level: input.reorderLevel,
       };
     });
+    await redisData.invalidateReadCache();
+    return offer;
   } catch (error) {
     handleUniqueViolation(error, 'This supplier already lists the product');
   }
@@ -381,6 +410,7 @@ async function updateSupplierProduct(supplierUserId, id, input) {
     values
   );
   if (!result.rows[0]) throw new NotFoundError('Supplier product not found');
+  await redisData.invalidateReadCache();
   return result.rows[0];
 }
 
@@ -405,7 +435,7 @@ async function listInventory(supplierUserId, lowStockOnly = false) {
 }
 
 async function updateInventory(supplierUserId, supplierProductId, input) {
-  return withTransaction(async (client) => {
+  const updatedInventory = await withTransaction(async (client) => {
     const locked = await client.query(
       `SELECT i.id, i.total_quantity, i.available_quantity, i.reserved_quantity, i.reorder_level
        FROM inventory i
@@ -438,6 +468,8 @@ async function updateInventory(supplierUserId, supplierProductId, input) {
     );
     return updated.rows[0];
   });
+  await redisData.invalidateReadCache();
+  return updatedInventory;
 }
 
 module.exports = {

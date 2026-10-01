@@ -1,14 +1,7 @@
-const { Queue } = require('bullmq');
-const env = require('../config/env');
+const { connection, getQueue, QUEUE_NAMES } = require('./queueRegistry');
 
-const queueName = 'quotation-expiry';
-const connection = {
-  host: env.redisHost,
-  port: env.redisPort,
-  maxRetriesPerRequest: null,
-};
-
-const quotationExpiryQueue = new Queue(queueName, { connection });
+const queueName = QUEUE_NAMES.quotationExpiry;
+const quotationExpiryQueue = getQueue(queueName);
 
 module.exports = {
   queueName,

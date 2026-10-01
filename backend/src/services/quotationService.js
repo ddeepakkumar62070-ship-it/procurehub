@@ -1,6 +1,9 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, NotFoundError, ValidationError } = require('../utils/errors');
 const orderTransitionService = require('./orderTransitionService');
+const jobOutboxService = require('./jobOutboxService');
+const env = require('../config/env');
+const redisData = require('../config/redisData');
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -375,6 +378,9 @@ async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
     purchaseRequestId,
     buyerUserId,
   });
+  if (env.nodeEnv !== 'test') {
+    await jobOutboxService.addOrderStatusNotifications(client, purchaseOrder.id, 'PO_CREATED');
+  }
   return { quotation: accepted.rows[0], purchaseOrder };
 }
 
@@ -401,6 +407,7 @@ async function acceptQuotation(buyerUserId, quotationId) {
     acceptQuotationInTransaction(client, buyerUserId, quotationId)
   ));
   throwAcceptanceFailure(result.failure);
+  await redisData.invalidateReadCache();
   return { ...result.quotation, purchaseOrder: result.purchaseOrder };
 }
 
