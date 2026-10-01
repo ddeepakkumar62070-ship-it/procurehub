@@ -8,9 +8,10 @@ class AppError extends Error {
 }
 
 class ValidationError extends AppError {
-  constructor(message) {
+  constructor(message, details = null) {
     super(message, 400, 'VALIDATION_ERROR');
     this.name = 'ValidationError';
+    this.details = details;
   }
 }
 
@@ -35,10 +36,18 @@ class NotFoundError extends AppError {
   }
 }
 
+class ConflictError extends AppError {
+  constructor(message, code = 'CONFLICT') {
+    super(message, 409, code);
+    this.name = 'ConflictError';
+  }
+}
+
 module.exports = {
   AppError,
   ValidationError,
   UnauthorizedError,
   ForbiddenError,
   NotFoundError,
+  ConflictError,
 };

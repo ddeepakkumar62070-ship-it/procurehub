@@ -1,21 +1,64 @@
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { useAuthStore } from './store/authStore';
+import AuthPage from './pages/AuthPage';
+import DashboardPage from './pages/DashboardPage';
+import ProfilePage from './pages/ProfilePage';
+
+function RequireAuth({ children }) {
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const user = useAuthStore((state) => state.user);
+
+  if (isLoading) return <main className="page-message">Restoring your session…</main>;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function AuthBootstrap({ children }) {
+  const bootstrap = useAuthStore((state) => state.bootstrap);
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    bootstrap().catch((bootstrapError) => {
+      if (active) setError(bootstrapError.message || 'Could not restore your session');
+    });
+    return () => {
+      active = false;
+    };
+  }, [bootstrap]);
+
+  if (isLoading) return <main className="page-message">Restoring your session…</main>;
+  if (error) return <main className="page-message error-message">{error}</main>;
+  return children;
+}
+
+function HomeRedirect() {
+  const user = useAuthStore((state) => state.user);
+  return <Navigate to={user ? '/dashboard' : '/login'} replace />;
+}
+
 function App() {
   return (
-    <main className="app-shell">
-      <section className="hero">
-        <p className="eyebrow">ProcureHub</p>
-        <h1>B2B Procurement & Supplier Management Platform</h1>
-        <p className="subtitle">
-          Structured procurement workflows, supplier collaboration, order tracking,
-          payment visibility, and audit-first operations.
-        </p>
-        <div className="pill-row">
-          <span>Buyer</span>
-          <span>Supplier</span>
-          <span>Admin</span>
-          <span>Real-time</span>
-        </div>
-      </section>
-    </main>
+    <BrowserRouter>
+      <AuthBootstrap>
+        <Routes>
+          <Route path="/" element={<HomeRedirect />} />
+          <Route path="/login" element={<AuthPage mode="login" />} />
+          <Route path="/register" element={<AuthPage mode="register" />} />
+          <Route
+            path="/dashboard"
+            element={<RequireAuth><DashboardPage /></RequireAuth>}
+          />
+          <Route
+            path="/profile"
+            element={<RequireAuth><ProfilePage /></RequireAuth>}
+          />
+          <Route path="*" element={<HomeRedirect />} />
+        </Routes>
+      </AuthBootstrap>
+    </BrowserRouter>
   );
 }
 

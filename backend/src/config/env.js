@@ -14,7 +14,21 @@ const env = {
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   jwtSecret: process.env.JWT_SECRET || 'dev_secret_change_me',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret_change_me',
+  accessTokenExpiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m',
+  refreshTokenExpiresInDays: Number(process.env.REFRESH_TOKEN_EXPIRES_IN_DAYS || 7),
+  refreshCookieName: process.env.REFRESH_COOKIE_NAME || 'procurehub_refresh',
   logLevel: process.env.LOG_LEVEL || 'info',
 };
+
+if (env.nodeEnv === 'production') {
+  for (const [name, value] of [
+    ['JWT_SECRET', env.jwtSecret],
+    ['JWT_REFRESH_SECRET', env.jwtRefreshSecret],
+  ]) {
+    if (value.length < 32 || value.includes('change_me')) {
+      throw new Error(`${name} must be a strong, unique secret in production`);
+    }
+  }
+}
 
 module.exports = env;

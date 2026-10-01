@@ -5,17 +5,23 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "db:migrate": "node scripts/migrate.js",
+    "admin:create": "node scripts/createAdmin.js",
     "test": "jest --runInBand"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
     "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.3",
     "pg": "^8.11.5",
     "redis": "^4.7.1",
     "socket.io": "^4.8.1",
-    "winston": "^3.13.0"
+    "winston": "^3.13.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "jest": "^29.7.0",
