@@ -7,6 +7,10 @@ const logger = require('./config/logger');
 const healthRoutes = require('./routes/healthRoutes');
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const catalogRoutes = require('./routes/catalogRoutes');
+const supplierProductRoutes = require('./routes/supplierProductRoutes');
+const inventoryRoutes = require('./routes/inventoryRoutes');
+const purchaseRequestRoutes = require('./routes/purchaseRequestRoutes');
 const errorMiddleware = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -34,6 +38,10 @@ app.get('/', (req, res) => {
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/profiles', profileRoutes);
+app.use('/api/catalog', catalogRoutes);
+app.use('/api/supplier-products', supplierProductRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/purchase-requests', purchaseRequestRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
