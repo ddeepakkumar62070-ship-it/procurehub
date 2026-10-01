@@ -16,9 +16,14 @@ const env = {
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret_change_me',
   accessTokenExpiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m',
   refreshTokenExpiresInDays: Number(process.env.REFRESH_TOKEN_EXPIRES_IN_DAYS || 7),
+  orderReservationTtlHours: Number(process.env.ORDER_RESERVATION_TTL_HOURS || 24),
   refreshCookieName: process.env.REFRESH_COOKIE_NAME || 'procurehub_refresh',
   logLevel: process.env.LOG_LEVEL || 'info',
 };
+
+if (!Number.isFinite(env.orderReservationTtlHours) || env.orderReservationTtlHours <= 0) {
+  throw new Error('ORDER_RESERVATION_TTL_HOURS must be a positive number');
+}
 
 if (env.nodeEnv === 'production') {
   for (const [name, value] of [

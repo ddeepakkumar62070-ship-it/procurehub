@@ -7,7 +7,9 @@ const {
 
 describe('OrderStateMachine', () => {
   it('allows only the declared next step in the normal order lifecycle', () => {
-    expect(availableTransitions('PO_CREATED')).toEqual(['CONFIRMED', 'CANCELLED']);
+    expect(availableTransitions('PO_CREATED')).toEqual([
+      'CONFIRMED', 'CANCELLED', 'REJECTED', 'EXPIRED',
+    ]);
     expect(() => assertTransition('PO_CREATED', 'CONFIRMED')).not.toThrow();
     expect(() => assertTransition('PO_CREATED', 'SHIPPED')).toThrow(
       'Purchase order cannot transition from PO_CREATED to SHIPPED'

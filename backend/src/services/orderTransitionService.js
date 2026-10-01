@@ -1,6 +1,7 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, ForbiddenError, NotFoundError } = require('../utils/errors');
 const OrderStateMachine = require('./orderStateMachine');
+const inventoryReservationService = require('./inventoryReservationService');
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -114,6 +115,11 @@ async function createFromAcceptedQuotation(client, {
   if (itemResult.rowCount !== source.request_item_count) {
     throw new ConflictError('Accepted quotation does not cover every requested item');
   }
+  const reservations = await inventoryReservationService.reserveForOrder(client, {
+    orderId: order.id,
+    supplierUserId: source.supplier_user_id,
+    currency: source.currency,
+  });
   await writeAudit(client, {
     orderId: order.id,
     fromStatus: 'QUOTATION_ACCEPTED',
@@ -121,7 +127,7 @@ async function createFromAcceptedQuotation(client, {
     actorUserId: buyerUserId,
     actorRole,
   });
-  return order;
+  return { ...order, reservations };
 }
 
 function roleForOrderParty(order, actor) {
@@ -239,6 +245,14 @@ async function transitionPurchaseOrder(orderId, actor, input) {
     OrderStateMachine.assertTransition(order.status, input.status);
     OrderStateMachine.assertPermission(input.status, actorRole);
 
+    if (input.status === 'CONFIRMED') {
+      await inventoryReservationService.confirmForOrder(client, orderId);
+    } else if (input.status === 'SHIPPED') {
+      await inventoryReservationService.consumeForOrder(client, orderId);
+    } else if (['CANCELLED', 'REJECTED'].includes(input.status)) {
+      await inventoryReservationService.releaseForOrder(client, orderId);
+    }
+
     const auditTimestampColumns = {
       CONFIRMED: 'confirmed_at',
       SHIPPED: 'shipped_at',
@@ -249,6 +263,7 @@ async function transitionPurchaseOrder(orderId, actor, input) {
       CANCELLED: 'cancelled_at',
       RETURNED: 'returned_at',
       REFUNDED: 'refunded_at',
+      REJECTED: 'rejected_at',
     };
     const timestampColumn = auditTimestampColumns[input.status];
     const assignments = timestampColumn

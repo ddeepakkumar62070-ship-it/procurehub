@@ -1,6 +1,7 @@
 const { Worker } = require('bullmq');
 const logger = require('../config/logger');
 const quotationService = require('../services/quotationService');
+const inventoryReservationService = require('../services/inventoryReservationService');
 const { connection, queueName, quotationExpiryQueue } = require('../queues/quotationExpiryQueue');
 
 async function startQuotationExpiryWorker() {
@@ -8,10 +9,14 @@ async function startQuotationExpiryWorker() {
     queueName,
     async () => {
       const expiredCount = await quotationService.expireOverdueQuotations();
-      if (expiredCount > 0) {
-        logger.info('Expired quotations processed', { count: expiredCount });
+      const expiredReservationCount = await inventoryReservationService.expireOverdueReservations();
+      if (expiredCount > 0 || expiredReservationCount > 0) {
+        logger.info('Expired records processed', {
+          quotations: expiredCount,
+          purchaseOrders: expiredReservationCount,
+        });
       }
-      return { expiredCount };
+      return { expiredCount, expiredReservationCount };
     },
     { connection }
   );

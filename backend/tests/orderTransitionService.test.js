@@ -2,9 +2,17 @@ jest.mock('../src/config/db', () => ({
   pool: { connect: jest.fn() },
   query: jest.fn(),
 }));
+jest.mock('../src/services/inventoryReservationService', () => ({
+  reserveForOrder: jest.fn().mockResolvedValue([{ id: 'reservation-id' }]),
+  confirmForOrder: jest.fn().mockResolvedValue(1),
+  releaseForOrder: jest.fn().mockResolvedValue(1),
+  consumeForOrder: jest.fn().mockResolvedValue(1),
+  expireOverdueReservations: jest.fn(),
+}));
 
 const { pool } = require('../src/config/db');
 const orderTransitionService = require('../src/services/orderTransitionService');
+const inventoryReservationService = require('../src/services/inventoryReservationService');
 
 describe('OrderTransitionService', () => {
   let client;
@@ -49,6 +57,10 @@ describe('OrderTransitionService', () => {
     });
 
     expect(order.status).toBe('PO_CREATED');
+    expect(inventoryReservationService.reserveForOrder).toHaveBeenCalledWith(
+      client,
+      { orderId: 'order-id', supplierUserId: 'supplier-id', currency: 'USD' }
+    );
     expect(client.query.mock.calls[2][0]).toContain("status, currency, subtotal");
     expect(client.query.mock.calls[3][0]).toContain('FROM quotation_items');
     expect(client.query.mock.calls[4][0]).toContain('purchase_order_audit_logs');
@@ -82,6 +94,7 @@ describe('OrderTransitionService', () => {
     );
 
     expect(result.status).toBe('CONFIRMED');
+    expect(inventoryReservationService.confirmForOrder).toHaveBeenCalledWith(client, 'order-id');
     expect(client.query.mock.calls[1][0]).toContain('FOR UPDATE OF po');
     expect(client.query.mock.calls[2][0]).toContain('purchase_order_audit_logs');
     expect(client.query.mock.calls[3][0]).toContain('confirmed_at = NOW()');
@@ -144,5 +157,55 @@ describe('OrderTransitionService', () => {
       { status: 'CANCELLED' }
     )).rejects.toMatchObject({ statusCode: 404 });
     expect(client.query.mock.calls.at(-1)[0]).toBe('ROLLBACK');
+  });
+
+  it('releases reservations transactionally when an order is cancelled', async () => {
+    client.query
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'order-id',
+          buyer_user_id: 'buyer-id',
+          supplier_user_id: 'supplier-id',
+          status: 'PO_CREATED',
+        }],
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ rows: [{ id: 'order-id', status: 'CANCELLED' }] })
+      .mockResolvedValueOnce({});
+
+    await orderTransitionService.transitionPurchaseOrder(
+      'order-id',
+      { id: 'buyer-id', roles: ['BUYER'] },
+      { status: 'CANCELLED' }
+    );
+
+    expect(inventoryReservationService.releaseForOrder).toHaveBeenCalledWith(client, 'order-id');
+    expect(client.query.mock.calls.at(-1)[0]).toBe('COMMIT');
+  });
+
+  it('consumes confirmed reservations transactionally when an order ships', async () => {
+    client.query
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'order-id',
+          buyer_user_id: 'buyer-id',
+          supplier_user_id: 'supplier-id',
+          status: 'PROCESSING',
+        }],
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ rows: [{ id: 'order-id', status: 'SHIPPED' }] })
+      .mockResolvedValueOnce({});
+
+    await orderTransitionService.transitionPurchaseOrder(
+      'order-id',
+      { id: 'supplier-id', roles: ['SUPPLIER'] },
+      { status: 'SHIPPED' }
+    );
+
+    expect(inventoryReservationService.consumeForOrder).toHaveBeenCalledWith(client, 'order-id');
+    expect(client.query.mock.calls.at(-1)[0]).toBe('COMMIT');
   });
 });
