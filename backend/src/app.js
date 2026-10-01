@@ -14,6 +14,7 @@ const purchaseRequestRoutes = require('./routes/purchaseRequestRoutes');
 const quotationRoutes = require('./routes/quotationRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const errorMiddleware = require('./middleware/errorMiddleware');
 const rateLimit = require('./middleware/rateLimitMiddleware');
 
@@ -50,6 +51,7 @@ app.use('/api/purchase-requests', purchaseRequestRoutes);
 app.use('/api/quotations', quotationRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

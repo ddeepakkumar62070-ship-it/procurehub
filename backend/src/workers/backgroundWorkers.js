@@ -4,13 +4,15 @@ const invoiceService = require('../services/invoiceService');
 const emailNotificationService = require('../services/emailNotificationService');
 const orderNotificationService = require('../services/orderNotificationService');
 const jobOutboxService = require('../services/jobOutboxService');
+const notificationService = require('../services/notificationService');
 const { enqueueLowStockAlert } = require('../jobs/producers');
 const { QUEUE_NAMES } = require('../queues/queueRegistry');
 const { startWorker, schedule } = require('./workerFactory');
+const env = require('../config/env');
 
 async function processLowStockSweep() {
   const result = await query(
-    `SELECT i.id, i.available_quantity, i.reorder_level,
+    `SELECT i.id, i.available_quantity, i.reorder_level, sp.supplier_user_id,
             p.name AS product_name, u.email
      FROM inventory i
      JOIN supplier_products sp ON sp.id = i.supplier_product_id
@@ -20,6 +22,25 @@ async function processLowStockSweep() {
        AND sp.is_active = TRUE AND u.is_active = TRUE AND u.deleted_at IS NULL`
   );
   const day = new Date().toISOString().slice(0, 10);
+  if (env.nodeEnv !== 'test') {
+    await notificationService.withTransaction(async (client) => {
+      await notificationService.createManyInTransaction(
+        client,
+        result.rows.map((item) => ({
+          userId: item.supplier_user_id,
+          type: 'LOW_STOCK',
+          title: 'Low stock alert',
+          message: `${item.product_name} is at or below its reorder level.`,
+          data: {
+            productName: item.product_name,
+            availableQuantity: item.available_quantity,
+            reorderLevel: item.reorder_level,
+          },
+          dedupeKey: `low-stock:${item.id}:${day}`,
+        }))
+      );
+    });
+  }
   await Promise.all(result.rows.map((item) => enqueueLowStockAlert({
     to: item.email,
     subject: `Low stock alert: ${item.product_name}`,
@@ -58,6 +79,15 @@ async function startBackgroundWorkers() {
     logger.error('Dead-letter job recorded', job.data);
     return { recorded: true };
   });
+  const notificationWorker = await startWorker(
+    QUEUE_NAMES.notificationDelivery,
+    async (job) => {
+      if (job.name !== 'deliver-notification') {
+        throw new Error(`Unsupported notification job: ${job.name}`);
+      }
+      return notificationService.deliver(job.data.notificationId);
+    }
+  );
   const outboxWorker = await startWorker(QUEUE_NAMES.outboxDispatcher, async (job) => {
     if (job.name !== 'dispatch-outbox') throw new Error(`Unsupported outbox job: ${job.name}`);
     const published = await jobOutboxService.dispatchPendingJobs();
@@ -83,6 +113,7 @@ async function startBackgroundWorkers() {
     lowStockWorker.waitUntilReady(),
     paymentReminderWorker.waitUntilReady(),
     deadLetterWorker.waitUntilReady(),
+    notificationWorker.waitUntilReady(),
     outboxWorker.waitUntilReady(),
   ]);
   logger.info('Background workers started');
@@ -92,6 +123,7 @@ async function startBackgroundWorkers() {
     lowStockWorker,
     paymentReminderWorker,
     deadLetterWorker,
+    notificationWorker,
     outboxWorker,
   ];
 }

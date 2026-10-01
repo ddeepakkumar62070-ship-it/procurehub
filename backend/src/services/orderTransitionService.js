@@ -7,6 +7,13 @@ const jobOutboxService = require('./jobOutboxService');
 const { QUEUE_NAMES } = require('../queues/queueRegistry');
 const env = require('../config/env');
 const redisData = require('../config/redisData');
+const notificationService = require('./notificationService');
+
+const ORDER_NOTIFICATION_TYPES = {
+  CONFIRMED: 'ORDER_CONFIRMED',
+  SHIPPED: 'ORDER_SHIPPED',
+  DELIVERED: 'ORDER_DELIVERED',
+};
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -314,6 +321,20 @@ async function transitionPurchaseOrder(orderId, actor, input) {
     );
     if (env.nodeEnv !== 'test') {
       await jobOutboxService.addOrderStatusNotifications(client, orderId, input.status);
+      const notificationType = ORDER_NOTIFICATION_TYPES[input.status];
+      if (notificationType) {
+        await notificationService.createManyInTransaction(client, [
+          order.buyer_user_id,
+          order.supplier_user_id,
+        ].map((userId) => ({
+          userId,
+          type: notificationType,
+          title: `Order ${input.status.toLowerCase().replaceAll('_', ' ')}`,
+          message: `Purchase order ${order.order_number} is now ${input.status}.`,
+          data: { orderId },
+          dedupeKey: `order:${orderId}:${notificationType}`,
+        })));
+      }
       if (invoiceId) {
         await jobOutboxService.addJob(client, {
           queueName: QUEUE_NAMES.invoiceGeneration,

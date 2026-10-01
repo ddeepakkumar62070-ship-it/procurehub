@@ -4,6 +4,7 @@ const orderTransitionService = require('./orderTransitionService');
 const jobOutboxService = require('./jobOutboxService');
 const env = require('../config/env');
 const redisData = require('../config/redisData');
+const notificationService = require('./notificationService');
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -35,7 +36,7 @@ async function submitQuotation(supplierUserId, purchaseRequestId, input) {
   try {
     return await withTransaction(async (client) => {
       const requestResult = await client.query(
-        `SELECT id, status, required_delivery_date
+        `SELECT id, status, required_delivery_date, buyer_user_id, title, request_number
          FROM purchase_requests
          WHERE id = $1
          FOR UPDATE`,
@@ -174,6 +175,14 @@ async function submitQuotation(supplierUserId, purchaseRequestId, input) {
          WHERE id = $1 AND status = 'OPEN'`,
         [purchaseRequestId]
       );
+      if (env.nodeEnv !== 'test') await notificationService.createInTransaction(client, {
+        userId: purchaseRequest.buyer_user_id,
+        type: 'NEW_QUOTATION',
+        title: 'New supplier quotation',
+        message: `A supplier submitted a quotation for ${purchaseRequest.title}.`,
+        data: { purchaseRequestId, quotationId: quotation.id },
+        dedupeKey: `quotation:${quotation.id}:new`,
+      });
 
       return {
         ...quotation,
@@ -326,7 +335,7 @@ async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
   }
 
   const selectedResult = await client.query(
-    `SELECT id, status, valid_until
+    `SELECT id, supplier_user_id, status, valid_until
      FROM quotations
      WHERE id = $1 AND purchase_request_id = $2
      FOR UPDATE`,
@@ -356,7 +365,7 @@ async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
   );
   if (accepted.rowCount !== 1) return { failure: 'QUOTATION_NOT_SUBMITTED' };
 
-  await client.query(
+  const rejectedResult = await client.query(
     `UPDATE quotations
      SET status = CASE WHEN valid_until <= NOW() THEN 'EXPIRED' ELSE 'REJECTED' END,
          expired_at = CASE WHEN valid_until <= NOW() THEN NOW() ELSE NULL END,
@@ -364,7 +373,8 @@ async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
          updated_at = NOW()
      WHERE purchase_request_id = $1
        AND id <> $2
-       AND status = 'SUBMITTED'`,
+       AND status = 'SUBMITTED'
+     RETURNING id AS quotation_id, supplier_user_id, status`,
     [purchaseRequestId, selected.id]
   );
   await client.query(
@@ -378,6 +388,27 @@ async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
     purchaseRequestId,
     buyerUserId,
   });
+  if (env.nodeEnv !== 'test') await notificationService.createInTransaction(client, {
+    userId: selected.supplier_user_id,
+    type: 'QUOTATION_ACCEPTED',
+    title: 'Quotation accepted',
+    message: 'Your quotation was accepted and a purchase order was created.',
+    data: { quotationId: selected.id, purchaseOrderId: purchaseOrder.id },
+    dedupeKey: `quotation:${selected.id}:accepted`,
+  });
+  if (env.nodeEnv !== 'test' && rejectedResult.rowCount) {
+    await notificationService.createManyInTransaction(
+      client,
+      rejectedResult.rows.filter((supplier) => supplier.status === 'REJECTED').map((supplier) => ({
+        userId: supplier.supplier_user_id,
+        type: 'QUOTATION_REJECTED',
+        title: 'Quotation not selected',
+        message: 'The buyer selected another supplier quotation.',
+        data: { quotationId: supplier.quotation_id, purchaseRequestId },
+        dedupeKey: `quotation:${supplier.quotation_id}:rejected`,
+      }))
+    );
+  }
   if (env.nodeEnv !== 'test') {
     await jobOutboxService.addOrderStatusNotifications(client, purchaseOrder.id, 'PO_CREATED');
   }
@@ -414,7 +445,7 @@ async function acceptQuotation(buyerUserId, quotationId) {
 async function rejectQuotation(buyerUserId, quotationId) {
   const outcome = await withTransaction(async (client) => {
     const lookup = await client.query(
-      'SELECT purchase_request_id FROM quotations WHERE id = $1',
+      'SELECT purchase_request_id, supplier_user_id FROM quotations WHERE id = $1',
       [quotationId]
     );
     if (!lookup.rows[0]) throw new NotFoundError('Quotation not found');
@@ -459,6 +490,14 @@ async function rejectQuotation(buyerUserId, quotationId) {
       }
       throw new ConflictError('Only a submitted quotation can be rejected', 'QUOTATION_NOT_REJECTABLE');
     }
+    if (env.nodeEnv !== 'test') await notificationService.createInTransaction(client, {
+      userId: lookup.rows[0].supplier_user_id,
+      type: 'QUOTATION_REJECTED',
+      title: 'Quotation rejected',
+      message: 'The buyer rejected your quotation.',
+      data: { quotationId, purchaseRequestId: requestResult.rows[0].id },
+      dedupeKey: `quotation:${quotationId}:rejected`,
+    });
     return { quotation: result.rows[0] };
   });
   if (outcome.failure === 'QUOTATION_EXPIRED') {
@@ -495,6 +534,32 @@ async function expireOverdueQuotations() {
   return result.rowCount;
 }
 
+async function notifyExpiringQuotations() {
+  return notificationService.withTransaction(async (client) => {
+    const result = await client.query(
+      `SELECT q.id, q.quotation_number, q.supplier_user_id, q.valid_until
+       FROM quotations q
+       WHERE q.status = 'SUBMITTED'
+         AND q.valid_until > NOW()
+         AND q.valid_until <= NOW() + INTERVAL '24 hours'
+       ORDER BY q.valid_until, q.id
+       FOR UPDATE OF q SKIP LOCKED`
+    );
+    const created = await notificationService.createManyInTransaction(
+      client,
+      result.rows.map((quotation) => ({
+        userId: quotation.supplier_user_id,
+        type: 'QUOTATION_EXPIRING',
+        title: 'Quotation expiring soon',
+        message: `Quotation ${quotation.quotation_number} expires within 24 hours.`,
+        data: { quotationId: quotation.id, validUntil: quotation.valid_until },
+        dedupeKey: `quotation:${quotation.id}:expiring`,
+      }))
+    );
+    return created.length;
+  });
+}
+
 module.exports = {
   submitQuotation,
   listBuyerQuotations,
@@ -507,4 +572,5 @@ module.exports = {
   expireOverdueForRequest,
   expireOverdueById,
   expireOverdueQuotations,
+  notifyExpiringQuotations,
 };

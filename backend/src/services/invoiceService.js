@@ -6,6 +6,7 @@ const redisData = require('../config/redisData');
 const logger = require('../config/logger');
 const jobOutboxService = require('./jobOutboxService');
 const env = require('../config/env');
+const notificationService = require('./notificationService');
 
 async function nextInvoiceNumber(client) {
   const result = await client.query(
@@ -230,6 +231,16 @@ async function payInvoice(invoiceId, buyer, amount) {
         JSON.stringify(payment.metadata),
       ]
     );
+    if (env.nodeEnv !== 'test') {
+      await notificationService.createInTransaction(client, {
+        userId: invoice.supplier_id,
+        type: 'PAYMENT_RECEIVED',
+        title: 'Payment received',
+        message: `A payment of ${paymentAmount.toFixed(2)} ${invoice.currency} was received.`,
+        data: { invoiceId, paymentId: paymentResult.rows[0].id, amount: paymentAmount.toFixed(2) },
+        dedupeKey: `payment:${paymentResult.rows[0].id}:received`,
+      });
+    }
     const updatedInvoice = await client.query(
       `UPDATE invoices
        SET amount_paid = amount_paid + $1,

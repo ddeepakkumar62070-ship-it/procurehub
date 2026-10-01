@@ -1,5 +1,7 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, NotFoundError, ValidationError } = require('../utils/errors');
+const notificationService = require('./notificationService');
+const env = require('../config/env');
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -116,6 +118,46 @@ async function createPurchaseRequest(buyerUserId, input) {
            (purchase_request_id, product_id, product_name, product_sku, quantity)
          VALUES ($1, $2, $3, $4, $5)`,
         [requestId, product.id, product.name, product.sku, item.quantity]
+      );
+    }
+
+    if (env.nodeEnv !== 'test') {
+      const eligibleSuppliers = await client.query(
+        `SELECT u.id
+         FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id
+         JOIN roles r ON r.id = ur.role_id AND r.name = 'SUPPLIER'
+         WHERE u.is_active = TRUE AND u.deleted_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1
+             FROM purchase_request_items requested_item
+             WHERE requested_item.purchase_request_id = $1
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM supplier_products sp
+                 JOIN products p ON p.id = sp.product_id
+                   AND p.is_active = TRUE AND p.deleted_at IS NULL
+                 JOIN categories c ON c.id = p.category_id
+                   AND c.is_active = TRUE AND c.deleted_at IS NULL
+                 JOIN inventory i ON i.supplier_product_id = sp.id
+                 WHERE sp.supplier_user_id = u.id
+                   AND sp.product_id = requested_item.product_id
+                   AND sp.is_active = TRUE
+                   AND i.available_quantity >= requested_item.quantity
+               )
+           )`,
+        [requestId]
+      );
+      await notificationService.createManyInTransaction(
+        client,
+        eligibleSuppliers.rows.map((supplier) => ({
+          userId: supplier.id,
+          type: 'NEW_PURCHASE_REQUEST',
+          title: 'New purchase request',
+          message: `${input.title} is available for quotation.`,
+          data: { purchaseRequestId: requestId },
+          dedupeKey: `purchase-request:${requestId}:new`,
+        }))
       );
     }
 

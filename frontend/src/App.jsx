@@ -12,6 +12,7 @@ import PurchaseRequestsPage from './pages/PurchaseRequestsPage';
 import PurchaseRequestDetailPage from './pages/PurchaseRequestDetailPage';
 import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
 import PurchaseOrderDetailPage from './pages/PurchaseOrderDetailPage';
+import NotificationCenter from './components/NotificationCenter';
 
 function RequireAuth({ children }) {
   const isLoading = useAuthStore((state) => state.isLoading);
@@ -57,6 +58,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthBootstrap>
+        <NotificationCenter />
         <Routes>
           <Route path="/" element={<HomeRedirect />} />
           <Route path="/login" element={<AuthPage mode="login" />} />

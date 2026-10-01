@@ -8,6 +8,7 @@ const QUEUE_NAMES = {
   lowStockAlerts: 'low-stock-alerts',
   paymentReminders: 'payment-reminders',
   outboxDispatcher: 'outbox-dispatcher',
+  notificationDelivery: 'notification-delivery',
   deadLetter: 'dead-letter',
 };
 
