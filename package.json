@@ -1,6 +1,16 @@
 {
-  "dependencies": {
-    "axios": "^1.20.0",
-    "express": "^5.2.1"
+  "name": "procurehub",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "backend:dev": "npm --prefix backend run dev",
+    "backend:start": "npm --prefix backend run start",
+    "backend:test": "npm --prefix backend run test",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "docker:up": "docker compose up --build"
   }
 }
