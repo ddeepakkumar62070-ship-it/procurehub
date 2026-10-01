@@ -9,10 +9,14 @@ jest.mock('../src/services/inventoryReservationService', () => ({
   consumeForOrder: jest.fn().mockResolvedValue(1),
   expireOverdueReservations: jest.fn(),
 }));
+jest.mock('../src/services/invoiceService', () => ({
+  createForOrder: jest.fn().mockResolvedValue({ id: 'invoice-id' }),
+}));
 
 const { pool } = require('../src/config/db');
 const orderTransitionService = require('../src/services/orderTransitionService');
 const inventoryReservationService = require('../src/services/inventoryReservationService');
+const invoiceService = require('../src/services/invoiceService');
 
 describe('OrderTransitionService', () => {
   let client;
@@ -206,6 +210,31 @@ describe('OrderTransitionService', () => {
     );
 
     expect(inventoryReservationService.consumeForOrder).toHaveBeenCalledWith(client, 'order-id');
+    expect(client.query.mock.calls.at(-1)[0]).toBe('COMMIT');
+  });
+
+  it('creates the invoice in the same transaction as the invoice-generated transition', async () => {
+    client.query
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'order-id',
+          buyer_user_id: 'buyer-id',
+          supplier_user_id: 'supplier-id',
+          status: 'DELIVERED',
+        }],
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ rows: [{ id: 'order-id', status: 'INVOICE_GENERATED' }] })
+      .mockResolvedValueOnce({});
+
+    await orderTransitionService.transitionPurchaseOrder(
+      'order-id',
+      { id: 'supplier-id', roles: ['SUPPLIER'] },
+      { status: 'INVOICE_GENERATED' }
+    );
+
+    expect(invoiceService.createForOrder).toHaveBeenCalledWith(client, 'order-id');
     expect(client.query.mock.calls.at(-1)[0]).toBe('COMMIT');
   });
 });

@@ -2,6 +2,7 @@ const { pool, query } = require('../config/db');
 const { ConflictError, ForbiddenError, NotFoundError } = require('../utils/errors');
 const OrderStateMachine = require('./orderStateMachine');
 const inventoryReservationService = require('./inventoryReservationService');
+const invoiceService = require('./invoiceService');
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -251,6 +252,26 @@ async function transitionPurchaseOrder(orderId, actor, input) {
       await inventoryReservationService.consumeForOrder(client, orderId);
     } else if (['CANCELLED', 'REJECTED'].includes(input.status)) {
       await inventoryReservationService.releaseForOrder(client, orderId);
+    }
+
+    if (input.status === 'INVOICE_GENERATED') {
+      await invoiceService.createForOrder(client, orderId);
+    }
+    if (input.status === 'PAID') {
+      const invoice = await client.query(
+        `SELECT status FROM invoices WHERE order_id = $1 FOR UPDATE`,
+        [orderId]
+      );
+      if (invoice.rows[0]?.status !== 'PAID') {
+        throw new ConflictError('The order invoice must be fully paid before this transition');
+      }
+    }
+    if (input.status === 'REFUNDED') {
+      await client.query(
+        `UPDATE invoices SET status = 'REFUNDED', updated_at = NOW()
+         WHERE order_id = $1`,
+        [orderId]
+      );
     }
 
     const auditTimestampColumns = {
