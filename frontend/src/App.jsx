@@ -10,6 +10,8 @@ import AdminCatalogPage from './pages/AdminCatalogPage';
 import PurchaseRequestCreatePage from './pages/PurchaseRequestCreatePage';
 import PurchaseRequestsPage from './pages/PurchaseRequestsPage';
 import PurchaseRequestDetailPage from './pages/PurchaseRequestDetailPage';
+import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
+import PurchaseOrderDetailPage from './pages/PurchaseOrderDetailPage';
 
 function RequireAuth({ children }) {
   const isLoading = useAuthStore((state) => state.isLoading);
@@ -105,6 +107,22 @@ function App() {
             )}
           />
           <Route
+            path="/purchase-orders"
+            element={(
+              <RequireAuth>
+                <RequireRole role="BUYER"><PurchaseOrdersPage /></RequireRole>
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/purchase-orders/:id"
+            element={(
+              <RequireAuth>
+                <RequireRole role="BUYER"><PurchaseOrderDetailPage /></RequireRole>
+              </RequireAuth>
+            )}
+          />
+          <Route
             path="/supplier/requests"
             element={(
               <RequireAuth>
@@ -117,6 +135,22 @@ function App() {
             element={(
               <RequireAuth>
                 <RequireRole role="SUPPLIER"><PurchaseRequestDetailPage supplierView /></RequireRole>
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/supplier/orders"
+            element={(
+              <RequireAuth>
+                <RequireRole role="SUPPLIER"><PurchaseOrdersPage supplierView /></RequireRole>
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/supplier/orders/:id"
+            element={(
+              <RequireAuth>
+                <RequireRole role="SUPPLIER"><PurchaseOrderDetailPage supplierView /></RequireRole>
               </RequireAuth>
             )}
           />

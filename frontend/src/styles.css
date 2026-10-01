@@ -520,6 +520,44 @@ small {
   margin: 0;
 }
 
+.request-list-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.17);
+  border-radius: 12px;
+  color: #e2e8f0;
+  background: rgba(2, 8, 23, 0.45);
+  text-decoration: none;
+}
+
+.request-list-card:hover {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+
+.request-list-card h2 {
+  margin: 8px 0 4px;
+  font-size: 1.1rem;
+}
+
+.request-list-card p {
+  margin: 0;
+}
+
+.order-audit-list {
+  display: grid;
+  gap: 14px;
+  padding-left: 22px;
+}
+
+.order-audit-list li small {
+  display: block;
+  margin-top: 4px;
+  color: #94a3b8;
+}
+
 .request-detail-section {
   margin: 28px 0;
 }

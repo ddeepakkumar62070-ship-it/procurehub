@@ -1,5 +1,6 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, NotFoundError, ValidationError } = require('../utils/errors');
+const orderTransitionService = require('./orderTransitionService');
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -370,7 +371,12 @@ async function acceptQuotation(buyerUserId, quotationId) {
        WHERE id = $1`,
       [purchaseRequestId]
     );
-    return { quotation: accepted.rows[0] };
+    const purchaseOrder = await orderTransitionService.createFromAcceptedQuotation(client, {
+      quotationId: selected.id,
+      purchaseRequestId,
+      buyerUserId,
+    });
+    return { quotation: accepted.rows[0], purchaseOrder };
   });
 
   if (result.failure) {
@@ -388,7 +394,7 @@ async function acceptQuotation(buyerUserId, quotationId) {
     ];
     throw new ConflictError(message, code);
   }
-  return result.quotation;
+  return { ...result.quotation, purchaseOrder: result.purchaseOrder };
 }
 
 async function rejectQuotation(buyerUserId, quotationId) {

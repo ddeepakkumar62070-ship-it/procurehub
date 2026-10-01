@@ -20,7 +20,9 @@ function DashboardPage() {
           <Link to="/profile">Business profile</Link>
           {user.roles.includes('SUPPLIER') && <Link to="/inventory">Inventory</Link>}
           {user.roles.includes('BUYER') && <Link to="/purchase-requests">My requests</Link>}
+          {user.roles.includes('BUYER') && <Link to="/purchase-orders">My orders</Link>}
           {user.roles.includes('SUPPLIER') && <Link to="/supplier/requests">Eligible requests</Link>}
+          {user.roles.includes('SUPPLIER') && <Link to="/supplier/orders">Supplier orders</Link>}
           {user.roles.includes('ADMIN') && <Link to="/admin/catalog">Manage catalog</Link>}
           <button className="text-button" onClick={handleLogout}>Sign out</button>
         </nav>
@@ -46,8 +48,14 @@ function DashboardPage() {
           {user.roles.includes('BUYER') && (
             <Link className="secondary-button button-link" to="/purchase-requests">My purchase requests</Link>
           )}
+          {user.roles.includes('BUYER') && (
+            <Link className="secondary-button button-link" to="/purchase-orders">Manage purchase orders</Link>
+          )}
           {user.roles.includes('SUPPLIER') && (
             <Link className="secondary-button button-link" to="/supplier/requests">View eligible requests</Link>
+          )}
+          {user.roles.includes('SUPPLIER') && (
+            <Link className="secondary-button button-link" to="/supplier/orders">Manage supplier orders</Link>
           )}
           <Link className="secondary-button button-link" to="/profile">Review business profile</Link>
         </div>

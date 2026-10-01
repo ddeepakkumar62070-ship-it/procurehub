@@ -2,8 +2,16 @@ jest.mock('../src/config/db', () => ({
   pool: { connect: jest.fn() },
   query: jest.fn(),
 }));
+jest.mock('../src/services/orderTransitionService', () => ({
+  createFromAcceptedQuotation: jest.fn().mockResolvedValue({
+    id: 'purchase-order-id',
+    order_number: 'PO-20990510-00000001',
+    status: 'PO_CREATED',
+  }),
+}));
 
 const { pool, query } = require('../src/config/db');
+const orderTransitionService = require('../src/services/orderTransitionService');
 const {
   submitQuotation,
   acceptQuotation,
@@ -160,11 +168,44 @@ describe('Quotation transactional state changes', () => {
     const result = await acceptQuotation('buyer-id', 'quotation-id');
 
     expect(result.status).toBe('ACCEPTED');
+    expect(result.purchaseOrder.status).toBe('PO_CREATED');
     expect(client.query.mock.calls[2][0]).toContain('FOR UPDATE');
     expect(client.query.mock.calls[4][0]).toContain("status = 'ACCEPTED'");
     expect(client.query.mock.calls[5][0]).toContain("status = CASE WHEN valid_until <= NOW()");
     expect(client.query.mock.calls[6][0]).toContain("status = 'QUOTATION_ACCEPTED'");
+    expect(orderTransitionService.createFromAcceptedQuotation).toHaveBeenCalledWith(
+      client,
+      { quotationId: 'quotation-id', purchaseRequestId: 'request-id', buyerUserId: 'buyer-id' }
+    );
     expect(client.query.mock.calls.at(-1)[0]).toBe('COMMIT');
+  });
+
+  it('rolls back quotation acceptance if purchase-order creation fails', async () => {
+    client.query
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ rows: [{ purchase_request_id: 'request-id' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'request-id', status: 'QUOTATION_RECEIVED' }] })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'quotation-id',
+          status: 'SUBMITTED',
+          valid_until: new Date(Date.now() + 60_000),
+        }],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ id: 'quotation-id', status: 'ACCEPTED' }],
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({});
+    orderTransitionService.createFromAcceptedQuotation.mockRejectedValueOnce(
+      new Error('purchase order insert failed')
+    );
+
+    await expect(acceptQuotation('buyer-id', 'quotation-id')).rejects.toThrow(
+      'purchase order insert failed'
+    );
+    expect(client.query.mock.calls.at(-1)[0]).toBe('ROLLBACK');
   });
 
   it('commits expiry state and refuses an expired quotation', async () => {

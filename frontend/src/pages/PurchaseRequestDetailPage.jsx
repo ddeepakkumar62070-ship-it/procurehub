@@ -13,6 +13,7 @@ function PurchaseRequestDetailPage({ supplierView = false }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
   const [quotations, setQuotations] = useState([]);
+  const [createdOrder, setCreatedOrder] = useState(null);
   const [quotationError, setQuotationError] = useState('');
   const [quotationBusyId, setQuotationBusyId] = useState('');
   const [quotationNotice, setQuotationNotice] = useState('');
@@ -56,7 +57,8 @@ function PurchaseRequestDetailPage({ supplierView = false }) {
     setQuotationBusyId(quotationId);
     try {
       if (action === 'accept') {
-        await quotationApi.accept(quotationId);
+        const accepted = await quotationApi.accept(quotationId);
+        setCreatedOrder(accepted.purchaseOrder);
         setQuotationNotice('Quotation accepted. Other submitted quotations have been rejected.');
       } else {
         await quotationApi.reject(quotationId);
@@ -152,6 +154,12 @@ function PurchaseRequestDetailPage({ supplierView = false }) {
                 <h2>Supplier quotations</h2>
                 {quotationError && <p className="form-error" role="alert">{quotationError}</p>}
                 {quotationNotice && <p className="success-message" role="status">{quotationNotice}</p>}
+                {createdOrder && (
+                  <p className="success-message">
+                    Purchase order {createdOrder.order_number} created.{' '}
+                    <Link to={`/purchase-orders/${createdOrder.id}`}>Open order</Link>
+                  </p>
+                )}
                 {!quotations.length && <p className="muted">No quotations received yet.</p>}
                 <div className="quotation-list">
                   {quotations.map((quotation) => {
