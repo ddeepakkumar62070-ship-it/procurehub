@@ -95,6 +95,8 @@ function PurchaseRequestsPage() {
               <select name="status" value={filters.status} onChange={updateFilter}>
                 <option value="">All requests</option>
                 <option value="OPEN">Open</option>
+                <option value="QUOTATION_RECEIVED">Quotation received</option>
+                <option value="QUOTATION_ACCEPTED">Quotation accepted</option>
                 <option value="CANCELLED">Cancelled</option>
               </select>
             </label>

@@ -42,8 +42,12 @@ async function selectBuyerRequest(client, buyerUserId, requestId) {
   return { ...request, items: await selectItems(client, request.id) };
 }
 
-function eligibleRequestPredicate(supplierUserId, requestAlias = 'pr') {
-  return `EXISTS (
+function eligibleRequestPredicate(supplierUserId, requestAlias = 'pr', excludeQuoted = false) {
+  return `${excludeQuoted ? `NOT EXISTS (
+    SELECT 1 FROM quotations own_quotation
+    WHERE own_quotation.purchase_request_id = ${requestAlias}.id
+      AND own_quotation.supplier_user_id = $1
+  ) AND ` : ''}EXISTS (
     SELECT 1
     FROM purchase_request_items eligible_item
     WHERE eligible_item.purchase_request_id = ${requestAlias}.id
@@ -164,7 +168,8 @@ async function cancelBuyerRequest(buyerUserId, requestId) {
     const result = await client.query(
       `UPDATE purchase_requests
        SET status = 'CANCELLED', cancelled_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND buyer_user_id = $2 AND status = 'OPEN'
+       WHERE id = $1 AND buyer_user_id = $2
+         AND status IN ('OPEN', 'QUOTATION_RECEIVED')
        RETURNING id`,
       [requestId, buyerUserId]
     );
@@ -179,6 +184,12 @@ async function cancelBuyerRequest(buyerUserId, requestId) {
         'PURCHASE_REQUEST_NOT_CANCELLABLE'
       );
     }
+    await client.query(
+      `UPDATE quotations
+       SET status = 'REJECTED', rejected_at = NOW(), updated_at = NOW()
+       WHERE purchase_request_id = $1 AND status = 'SUBMITTED'`,
+      [requestId]
+    );
     return selectBuyerRequest(client, buyerUserId, requestId);
   });
 }
@@ -186,9 +197,9 @@ async function cancelBuyerRequest(buyerUserId, requestId) {
 function buildEligibleFilters(supplierUserId, filters) {
   const values = [supplierUserId];
   const conditions = [
-    "pr.status = 'OPEN'",
+    "pr.status IN ('OPEN', 'QUOTATION_RECEIVED')",
     'pr.required_delivery_date >= CURRENT_DATE',
-    eligibleRequestPredicate(supplierUserId),
+    eligibleRequestPredicate(supplierUserId, 'pr', true),
   ];
   if (filters.keyword) {
     values.push(filters.keyword);
@@ -256,11 +267,16 @@ async function getEligibleRequest(supplierUserId, requestId) {
     `SELECT pr.id, pr.request_number, b.name AS buyer_business_name,
             pr.title, pr.status,
             pr.required_delivery_date, pr.delivery_location, pr.notes,
-            pr.created_at, pr.updated_at
+            pr.created_at, pr.updated_at,
+            own_quotation.id AS my_quotation_id,
+            own_quotation.status AS my_quotation_status
      FROM purchase_requests pr
      JOIN businesses b ON b.owner_user_id = pr.buyer_user_id
+     LEFT JOIN quotations own_quotation
+       ON own_quotation.purchase_request_id = pr.id
+       AND own_quotation.supplier_user_id = $1
      WHERE pr.id = $2
-       AND pr.status = 'OPEN'
+       AND pr.status IN ('OPEN', 'QUOTATION_RECEIVED')
        AND pr.required_delivery_date >= CURRENT_DATE
        AND ${eligibleRequestPredicate(supplierUserId)}`,
     [supplierUserId, requestId]

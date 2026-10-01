@@ -524,6 +524,60 @@ small {
   margin: 28px 0;
 }
 
+.quotation-form-section {
+  padding: 20px;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 14px;
+  background: rgba(2, 8, 23, 0.3);
+}
+
+.quotation-list {
+  display: grid;
+  gap: 16px;
+}
+
+.quotation-card {
+  padding: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  background: rgba(2, 8, 23, 0.42);
+}
+
+.quotation-card-heading,
+.quotation-metrics,
+.quotation-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.quotation-card-heading h3 {
+  margin: 8px 0 3px;
+}
+
+.quotation-card-heading p {
+  margin: 0;
+}
+
+.quotation-total {
+  white-space: nowrap;
+  font-size: 1.2rem;
+}
+
+.quotation-metrics {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 18px 0;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
+
+.quotation-actions {
+  justify-content: flex-start;
+  margin-top: 18px;
+}
+
 .request-detail-section h2 {
   font-size: 1.15rem;
 }
@@ -650,6 +704,12 @@ small {
 
   .request-list-item {
     align-items: flex-start;
+  }
+
+  .quotation-card-heading,
+  .quotation-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .inventory-row {

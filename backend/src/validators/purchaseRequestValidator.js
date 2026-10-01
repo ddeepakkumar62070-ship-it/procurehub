@@ -42,7 +42,7 @@ const createPurchaseRequestSchema = z.object({
 });
 
 const buyerRequestListQuerySchema = z.object({
-  status: z.enum(['OPEN', 'CANCELLED']).optional(),
+  status: z.enum(['OPEN', 'QUOTATION_RECEIVED', 'QUOTATION_ACCEPTED', 'CANCELLED']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 }).strict();

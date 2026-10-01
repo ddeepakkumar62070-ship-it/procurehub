@@ -4,6 +4,8 @@ const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { validateBody } = require('../middleware/validateMiddleware');
 const { validateParams, validateQuery } = require('../middleware/validateQueryMiddleware');
 const schemas = require('../validators/purchaseRequestValidator');
+const quotationController = require('../controllers/quotationController');
+const quotationSchemas = require('../validators/quotationValidator');
 
 const router = express.Router();
 
@@ -32,6 +34,19 @@ router.get(
   requireRole('SUPPLIER'),
   validateParams(schemas.requestIdParamSchema),
   controller.getEligible
+);
+router.post(
+  '/:id/quotations',
+  requireRole('SUPPLIER'),
+  validateParams(quotationSchemas.purchaseRequestIdParamSchema),
+  validateBody(quotationSchemas.submitQuotationSchema),
+  quotationController.submit
+);
+router.get(
+  '/:id/quotations',
+  requireRole('BUYER'),
+  validateParams(quotationSchemas.purchaseRequestIdParamSchema),
+  quotationController.listForRequest
 );
 router.post(
   '/:id/cancel',

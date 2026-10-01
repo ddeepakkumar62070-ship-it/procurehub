@@ -11,6 +11,7 @@ const catalogRoutes = require('./routes/catalogRoutes');
 const supplierProductRoutes = require('./routes/supplierProductRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
 const purchaseRequestRoutes = require('./routes/purchaseRequestRoutes');
+const quotationRoutes = require('./routes/quotationRoutes');
 const errorMiddleware = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -42,6 +43,7 @@ app.use('/api/catalog', catalogRoutes);
 app.use('/api/supplier-products', supplierProductRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/purchase-requests', purchaseRequestRoutes);
+app.use('/api/quotations', quotationRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

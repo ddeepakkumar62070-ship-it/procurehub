@@ -5,6 +5,7 @@ const logger = require('./config/logger');
 const { initSocket } = require('./config/socket');
 const { connectRedis } = require('./config/redis');
 const { query } = require('./config/db');
+const { startQuotationExpiryWorker } = require('./jobs/quotationExpiryWorker');
 
 async function startServer() {
   try {
@@ -17,6 +18,8 @@ async function startServer() {
     if (result.rows[0]['?column?'] !== 1) {
       throw new Error('Database health check failed');
     }
+
+    await startQuotationExpiryWorker();
 
     server.listen(env.port, () => {
       logger.info(`ProcureHub backend listening on http://localhost:${env.port}`);

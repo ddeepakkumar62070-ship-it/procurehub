@@ -98,6 +98,8 @@ describe('Purchase request service transactions', () => {
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ rows: [{ id: 'request-id' }] })
       .mockResolvedValueOnce({
+      })
+      .mockResolvedValueOnce({
         rows: [{ id: 'request-id', status: 'CANCELLED' }],
       })
       .mockResolvedValueOnce({ rows: [] })
