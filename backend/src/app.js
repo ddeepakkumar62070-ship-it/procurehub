@@ -15,6 +15,10 @@ const quotationRoutes = require('./routes/quotationRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const supplierRoutes = require('./routes/supplierRoutes');
+const disputeRoutes = require('./routes/disputeRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 const errorMiddleware = require('./middleware/errorMiddleware');
 const rateLimit = require('./middleware/rateLimitMiddleware');
 
@@ -52,6 +56,10 @@ app.use('/api/quotations', quotationRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/suppliers', supplierRoutes);
+app.use('/api/disputes', disputeRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

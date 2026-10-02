@@ -1,66 +1,64 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { analyticsApi } from '../api/analyticsApi';
 import { useAuthStore } from '../store/authStore';
+import { ErrorState, LoadingState, PageHeader } from '../components/PageStates';
+import { AnalyticsSummary } from './WorkspacePages';
+
+const shortcuts = {
+  BUYER: [
+    ['Browse products', '/products'],
+    ['Find suppliers', '/suppliers'],
+    ['Create purchase request', '/purchase-requests/new'],
+    ['Review requests', '/purchase-requests'],
+    ['View orders', '/purchase-orders'],
+    ['Invoices & payments', '/invoices'],
+  ],
+  SUPPLIER: [
+    ['Manage product offers', '/supplier/products'],
+    ['Update inventory', '/inventory'],
+    ['Eligible requests', '/supplier/requests'],
+    ['Manage orders', '/supplier/orders'],
+    ['Shipment tracking', '/supplier/shipments'],
+    ['Analytics', '/supplier/analytics'],
+  ],
+  ADMIN: [
+    ['Manage users', '/admin/users'],
+    ['Supplier verification', '/admin/suppliers'],
+    ['Categories & products', '/admin/catalog'],
+    ['Monitor orders', '/admin/orders'],
+    ['Review disputes', '/admin/disputes'],
+    ['Audit logs', '/admin/audit-logs'],
+  ],
+};
 
 function DashboardPage() {
   const user = useAuthStore((state) => state.user);
-  const logout = useAuthStore((state) => state.logout);
-  const navigate = useNavigate();
+  const role = user.roles.includes('ADMIN') ? 'ADMIN' : user.roles.includes('SUPPLIER') ? 'SUPPLIER' : 'BUYER';
+  const [metrics, setMetrics] = useState(null);
+  const [error, setError] = useState('');
 
-  async function handleLogout() {
-    await logout();
-    navigate('/login', { replace: true });
-  }
+  useEffect(() => {
+    analyticsApi.mine().then(setMetrics)
+      .catch((requestError) => setError(requestError.response?.data?.error?.message || 'Could not load workspace metrics'));
+  }, []);
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <Link className="brand" to="/dashboard">ProcureHub</Link>
-        <nav>
-          <Link to="/catalog">Product catalog</Link>
-          <Link to="/profile">Business profile</Link>
-          {user.roles.includes('SUPPLIER') && <Link to="/inventory">Inventory</Link>}
-          {user.roles.includes('BUYER') && <Link to="/purchase-requests">My requests</Link>}
-          {user.roles.includes('BUYER') && <Link to="/purchase-orders">My orders</Link>}
-          {user.roles.includes('SUPPLIER') && <Link to="/supplier/requests">Eligible requests</Link>}
-          {user.roles.includes('SUPPLIER') && <Link to="/supplier/orders">Supplier orders</Link>}
-          {user.roles.includes('ADMIN') && <Link to="/admin/catalog">Manage catalog</Link>}
-          <button className="text-button" onClick={handleLogout}>Sign out</button>
-        </nav>
-      </header>
-      <section className="dashboard-card">
-        <p className="eyebrow">Workspace</p>
-        <h1>Welcome, {user.firstName}</h1>
-        <p className="muted">{user.email}</p>
-        <div className="pill-row">
-          {user.roles.map((role) => <span key={role}>{role}</span>)}
-        </div>
-        <p className="dashboard-note">
-          Your account is ready. Browse supplier listings and manage catalog inventory from this workspace.
-        </p>
-        <div className="dashboard-actions">
-          <Link className="primary-button button-link" to="/catalog">Browse product catalog</Link>
-          {user.roles.includes('SUPPLIER') && (
-            <Link className="secondary-button button-link" to="/inventory">Manage inventory</Link>
-          )}
-          {user.roles.includes('ADMIN') && (
-            <Link className="secondary-button button-link" to="/admin/catalog">Manage catalog</Link>
-          )}
-          {user.roles.includes('BUYER') && (
-            <Link className="secondary-button button-link" to="/purchase-requests">My purchase requests</Link>
-          )}
-          {user.roles.includes('BUYER') && (
-            <Link className="secondary-button button-link" to="/purchase-orders">Manage purchase orders</Link>
-          )}
-          {user.roles.includes('SUPPLIER') && (
-            <Link className="secondary-button button-link" to="/supplier/requests">View eligible requests</Link>
-          )}
-          {user.roles.includes('SUPPLIER') && (
-            <Link className="secondary-button button-link" to="/supplier/orders">Manage supplier orders</Link>
-          )}
-          <Link className="secondary-button button-link" to="/profile">Review business profile</Link>
-        </div>
-      </section>
-    </main>
+    <section className="page-stack">
+      <PageHeader
+        eyebrow={`${role.toLowerCase()} workspace`}
+        title={`Welcome back, ${user.firstName}`}
+        description="A live overview of your procurement work."
+      />
+      {error && <ErrorState message={error} />}
+      {metrics ? <AnalyticsSummary data={metrics} /> : !error && <LoadingState label="Loading workspace metrics…" />}
+      <h2>Quick access</h2>
+      <div className="entity-grid">{shortcuts[role].map(([label, path]) => (
+        <Link className="entity-card shortcut-card" to={path} key={path}>
+          <strong>{label}</strong><span aria-hidden="true">→</span>
+        </Link>
+      ))}</div>
+    </section>
   );
 }
 

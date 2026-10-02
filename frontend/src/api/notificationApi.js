@@ -1,8 +1,8 @@
 import api from './client';
 
 export const notificationApi = {
-  async list() {
-    const response = await api.get('/notifications?limit=30');
+  async list(params = {}) {
+    const response = await api.get('/notifications', { params: { limit: 30, ...params } });
     return response.data;
   },
   async markRead(id) {

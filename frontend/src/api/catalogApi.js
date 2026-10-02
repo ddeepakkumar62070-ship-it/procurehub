@@ -33,6 +33,9 @@ export const catalogApi = {
   async createSupplierProduct(input) {
     return responseData(await api.post('/supplier-products', input));
   },
+  async updateSupplierProduct(id, input) {
+    return responseData(await api.patch(`/supplier-products/${id}`, input));
+  },
   async updateInventory(supplierProductId, input) {
     return responseData(await api.patch(`/inventory/${supplierProductId}`, input));
   },
