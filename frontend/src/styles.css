@@ -24,7 +24,9 @@ body {
 }
 
 .app-shell {
-  width: min(100%, 1100px);
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 32px 20px;
 }
 
@@ -187,8 +189,9 @@ a:hover {
 
 .auth-card,
 .dashboard-card {
-  width: min(100%, 760px);
-  margin: 32px auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 40px;
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 22px;
@@ -335,7 +338,7 @@ small {
 }
 
 .profile-card {
-  max-width: 900px;
+  max-width: none;
 }
 
 .profile-form {
@@ -344,7 +347,7 @@ small {
 
 .catalog-card,
 .inventory-card {
-  max-width: 1080px;
+  max-width: none;
 }
 
 .catalog-filters {
@@ -488,7 +491,7 @@ small {
 }
 
 .request-card {
-  max-width: 920px;
+  max-width: none;
 }
 
 .request-card > .form-stack {
@@ -858,8 +861,9 @@ body {
 
 /* Desktop-first workspace density and responsive shell. */
 .app-shell {
-  width: min(100%, 1680px);
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 20px 28px 40px;
 }
 
@@ -869,7 +873,7 @@ body {
 .request-card {
   width: 100%;
   max-width: none;
-  margin: 0 auto;
+  margin: 0;
   padding: 24px;
   border-radius: 12px;
 }
@@ -1486,7 +1490,8 @@ table select {
 }
 
 .workspace-main {
-  flex: 1;
+  flex: 1 1 0%;
+  width: 100%;
   min-width: 0;
 }
 
@@ -1517,13 +1522,18 @@ table select {
 }
 
 .workspace-content {
-  width: min(100%, 1500px);
-  margin: 0 auto;
-  padding: 34px clamp(18px, 4vw, 48px) 64px;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 24px 30px 40px;
 }
 
 .workspace-content .app-shell {
   width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
   padding: 0;
 }
 
@@ -1668,6 +1678,7 @@ table select {
 
 .table-scroll {
   width: 100%;
+  max-width: none;
   overflow-x: auto;
   border: 1px solid rgba(148, 163, 184, 0.17);
   border-radius: 12px;
@@ -1677,6 +1688,7 @@ table select {
 .table-scroll table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: auto;
   text-align: left;
 }
 
@@ -2039,5 +2051,131 @@ table select {
   .pagination-bar {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+.workspace.app-shell {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  padding: 0;
+}
+
+.app-sidebar {
+  flex: 0 0 250px;
+  width: 250px;
+}
+
+.app-main {
+  flex: 1 1 0%;
+  width: 100%;
+  min-width: 0;
+}
+
+.app-topbar {
+  padding-right: 30px;
+  padding-left: 30px;
+}
+
+.page-content {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 24px 30px 40px;
+}
+
+.page-content > .app-shell,
+.page-content > .page-stack {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+}
+
+.page-content > .page-stack {
+  gap: 17px;
+}
+
+.page-content > .app-shell {
+  padding: 0;
+}
+
+.page-content .dashboard-card {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.request-detail-grid,
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+  align-items: start;
+  gap: 18px;
+  width: 100%;
+}
+
+.request-detail-aside {
+  min-width: 0;
+}
+
+.order-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.order-detail-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.data-table-container,
+.table-scroll {
+  width: 100%;
+  max-width: none;
+  overflow-x: auto;
+}
+
+.data-table-container table,
+.table-scroll table {
+  width: 100%;
+  table-layout: auto;
+}
+
+@media (max-width: 1050px) {
+  .app-sidebar {
+    flex-basis: 210px;
+    width: 210px;
+  }
+}
+
+@media (max-width: 820px) {
+  .workspace.app-shell {
+    display: block;
+  }
+
+  .app-sidebar {
+    width: 100%;
+  }
+
+  .page-content {
+    padding: 20px;
+  }
+
+  .request-detail-grid,
+  .detail-grid,
+  .order-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .app-topbar {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .page-content {
+    padding: 16px 12px 28px;
   }
 }

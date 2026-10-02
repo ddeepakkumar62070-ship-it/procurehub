@@ -79,8 +79,8 @@ function AppShell() {
   }
 
   return (
-    <div className="workspace">
-      <aside className="sidebar">
+    <div className="workspace app-shell">
+      <aside className="sidebar app-sidebar">
         <NavLink className="brand" to="/dashboard">ProcureHub</NavLink>
         <div className="workspace-role">{role.toLowerCase()} workspace</div>
         <nav aria-label={`${role.toLowerCase()} navigation`}>
@@ -101,8 +101,8 @@ function AppShell() {
           <button className="text-button" type="button" onClick={signOut}>Sign out</button>
         </div>
       </aside>
-      <div className="workspace-main">
-        <header className="workspace-topbar">
+      <div className="workspace-main app-main">
+        <header className="workspace-topbar app-topbar">
           <div><strong>{role.charAt(0) + role.slice(1).toLowerCase()} workspace</strong></div>
           <div className="topbar-actions">
             <NotificationCenter />
@@ -110,7 +110,7 @@ function AppShell() {
             <NavLink to="/profile">My profile</NavLink>
           </div>
         </header>
-        <main className="workspace-content"><Outlet /></main>
+        <div className="workspace-content page-content"><Outlet /></div>
       </div>
     </div>
   );

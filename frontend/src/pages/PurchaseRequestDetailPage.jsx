@@ -92,36 +92,40 @@ function PurchaseRequestDetailPage({ supplierView = false }) {
               {supplierView && `${purchaseRequest.buyer_business_name} · `}
               Required by {new Date(`${purchaseRequest.required_delivery_date.slice(0, 10)}T00:00:00`).toLocaleDateString()}
             </p>
-            <section className="request-detail-section">
-              <h2>Requested products</h2>
-              <div className="request-items-table">
-                {purchaseRequest.items.map((item) => (
-                  <div className="request-item" key={item.id}>
-                    <div>
-                      <strong>{item.product_name}</strong>
-                      <small>{item.product_sku}{item.category_name ? ` · ${item.category_name}` : ''}</small>
-                    </div>
-                    <strong>Quantity: {item.quantity}</strong>
-                  </div>
-                ))}
-              </div>
-            </section>
-            <section className="request-detail-section">
-              <h2>Delivery location</h2>
-              <p>
-                {purchaseRequest.delivery_location.address}<br />
-                {purchaseRequest.delivery_location.city}
-                {purchaseRequest.delivery_location.state && `, ${purchaseRequest.delivery_location.state}`}
-                {purchaseRequest.delivery_location.postalCode && ` ${purchaseRequest.delivery_location.postalCode}`}<br />
-                {purchaseRequest.delivery_location.country}
-              </p>
-            </section>
-            {purchaseRequest.notes && (
+            <div className="request-detail-grid">
               <section className="request-detail-section">
-                <h2>Buyer notes</h2>
-                <p>{purchaseRequest.notes}</p>
+                <h2>Requested products</h2>
+                <div className="request-items-table">
+                  {purchaseRequest.items.map((item) => (
+                    <div className="request-item" key={item.id}>
+                      <div>
+                        <strong>{item.product_name}</strong>
+                        <small>{item.product_sku}{item.category_name ? ` · ${item.category_name}` : ''}</small>
+                      </div>
+                      <strong>Quantity: {item.quantity}</strong>
+                    </div>
+                  ))}
+                </div>
               </section>
-            )}
+              <aside className="request-detail-aside">
+                <section className="request-detail-section">
+                  <h2>Delivery location</h2>
+                  <p>
+                    {purchaseRequest.delivery_location.address}<br />
+                    {purchaseRequest.delivery_location.city}
+                    {purchaseRequest.delivery_location.state && `, ${purchaseRequest.delivery_location.state}`}
+                    {purchaseRequest.delivery_location.postalCode && ` ${purchaseRequest.delivery_location.postalCode}`}<br />
+                    {purchaseRequest.delivery_location.country}
+                  </p>
+                </section>
+                {purchaseRequest.notes && (
+                  <section className="request-detail-section">
+                    <h2>Buyer notes</h2>
+                    <p>{purchaseRequest.notes}</p>
+                  </section>
+                )}
+              </aside>
+            </div>
             {!supplierView && user.roles.includes('BUYER')
               && ['OPEN', 'QUOTATION_RECEIVED'].includes(purchaseRequest.status) && (
               <button className="danger-button" disabled={isCancelling} onClick={handleCancel}>

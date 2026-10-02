@@ -70,16 +70,6 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
               {new Date(`${order.expected_delivery_date.slice(0, 10)}T00:00:00`).toLocaleDateString()}
             </p>
             <section className="request-detail-section">
-              <h2>Delivery location</h2>
-              <p>
-                {order.delivery_location.address}<br />
-                {order.delivery_location.city}
-                {order.delivery_location.state && `, ${order.delivery_location.state}`}<br />
-                {order.delivery_location.country}
-              </p>
-              {order.buyer_notes && <p>Buyer notes: {order.buyer_notes}</p>}
-            </section>
-            <section className="request-detail-section">
               <h2>Items</h2>
               <div className="request-items-table">
                 {order.items.map((item) => (
@@ -93,27 +83,39 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
                 ))}
               </div>
             </section>
-            {order.allowed_transitions.length > 0 && (
+            <div className={`request-detail-grid order-detail-grid${order.allowed_transitions.length ? '' : ' order-detail-grid-single'}`}>
               <section className="request-detail-section">
-                <h2>Update order status</h2>
-                <form className="form-stack" onSubmit={handleTransition}>
-                  <label>Next status
-                    <select value={nextStatus} onChange={(event) => setNextStatus(event.target.value)} required>
-                      <option value="" disabled>Select allowed transition</option>
-                      {order.allowed_transitions.map((status) => (
-                        <option value={status} key={status}>{status.replaceAll('_', ' ')}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>Reason or update (optional)
-                    <textarea rows="2" maxLength="2000" value={reason} onChange={(event) => setReason(event.target.value)} />
-                  </label>
-                  <button className="primary-button" disabled={isSaving || !nextStatus}>
-                    {isSaving ? 'Saving…' : 'Record transition'}
-                  </button>
-                </form>
+                <h2>Delivery location</h2>
+                <p>
+                  {order.delivery_location.address}<br />
+                  {order.delivery_location.city}
+                  {order.delivery_location.state && `, ${order.delivery_location.state}`}<br />
+                  {order.delivery_location.country}
+                </p>
+                {order.buyer_notes && <p>Buyer notes: {order.buyer_notes}</p>}
               </section>
-            )}
+              {order.allowed_transitions.length > 0 && (
+                <section className="request-detail-section">
+                  <h2>Update order status</h2>
+                  <form className="form-stack" onSubmit={handleTransition}>
+                    <label>Next status
+                      <select value={nextStatus} onChange={(event) => setNextStatus(event.target.value)} required>
+                        <option value="" disabled>Select allowed transition</option>
+                        {order.allowed_transitions.map((status) => (
+                          <option value={status} key={status}>{status.replaceAll('_', ' ')}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>Reason or update (optional)
+                      <textarea rows="2" maxLength="2000" value={reason} onChange={(event) => setReason(event.target.value)} />
+                    </label>
+                    <button className="primary-button" disabled={isSaving || !nextStatus}>
+                      {isSaving ? 'Saving…' : 'Record transition'}
+                    </button>
+                  </form>
+                </section>
+              )}
+            </div>
             <section className="request-detail-section">
               <h2>Order history</h2>
               <ol className="order-audit-list">
