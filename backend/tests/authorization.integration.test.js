@@ -62,13 +62,14 @@ describeWithDatabase('PostgreSQL authorization and ownership integration', () =>
        RETURNING id, supplier_user_id`,
       [supplierOne, supplierTwo, product.rows[0].id]
     );
-    const offerIds = Object.fromEntries(
+    const offerIdsBySupplier = Object.fromEntries(
       offers.rows.map((offer) => [offer.supplier_user_id, offer.id])
     );
+    const offerIds = Object.values(offerIdsBySupplier);
     await query(
       `INSERT INTO inventory (supplier_product_id, total_quantity, available_quantity)
        SELECT id, 10, 10 FROM supplier_products WHERE id = ANY($1::UUID[])`,
-      [Object.values(offerIds)]
+      [offerIds]
     );
     const purchaseRequest = await query(
       `INSERT INTO purchase_requests
@@ -99,7 +100,8 @@ describeWithDatabase('PostgreSQL authorization and ownership integration', () =>
       supplierTwo,
       categoryId: category.rows[0].id,
       productId: product.rows[0].id,
-      offerIds: offerIds,
+      offerIds,
+      offerIdsBySupplier,
       requestId: purchaseRequest.rows[0].id,
       requestItemId: requestItem.rows[0].id,
       quotationId: quotation.rows[0].id,
@@ -132,10 +134,10 @@ describeWithDatabase('PostgreSQL authorization and ownership integration', () =>
   it('does not expose another supplier’s private inventory or permit offer mutation', async () => {
     const ownOffers = await catalogService.listSupplierProducts(fixtures.supplierOne);
     expect(ownOffers).toHaveLength(1);
-    expect(ownOffers[0].id).toBe(fixtures.offerIds[fixtures.supplierOne]);
+    expect(ownOffers[0].id).toBe(fixtures.offerIdsBySupplier[fixtures.supplierOne]);
     await expect(catalogService.updateSupplierProduct(
       fixtures.supplierOne,
-      fixtures.offerIds[fixtures.supplierTwo],
+      fixtures.offerIdsBySupplier[fixtures.supplierTwo],
       { unitPrice: 1 }
     )).rejects.toMatchObject({ statusCode: 404 });
   });
