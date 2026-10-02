@@ -70,6 +70,17 @@ describe('Authentication and profile routes', () => {
     expect(response.headers['set-cookie'][0]).not.toContain('Max-Age=604800');
   });
 
+  it('rejects cross-origin refresh requests before using the refresh cookie', async () => {
+    const response = await request(app)
+      .post('/api/auth/refresh')
+      .set('Origin', 'https://attacker.example')
+      .set('Cookie', `${env.refreshCookieName}=opaque-refresh-token`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('FORBIDDEN');
+    expect(authService.refresh).not.toHaveBeenCalled();
+  });
+
   it('rejects public admin registration before calling the service', async () => {
     const response = await request(app).post('/api/auth/register').send({
       firstName: 'Platform',
@@ -98,6 +109,16 @@ describe('Authentication and profile routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.data.roles).toEqual(['BUYER']);
     expect(authService.getActiveUser).toHaveBeenCalledWith(user.id);
+  });
+
+  it('rejects bearer authorization headers containing extra tokens', async () => {
+    const accessToken = jwt.sign({ sub: user.id }, env.jwtSecret, { algorithm: 'HS256' });
+    const response = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${accessToken} unexpected`);
+
+    expect(response.status).toBe(401);
+    expect(authService.getActiveUser).not.toHaveBeenCalled();
   });
 
   it('denies a role-protected operation when the authenticated role is insufficient', () => {

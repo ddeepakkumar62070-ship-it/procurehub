@@ -14,7 +14,10 @@ const env = {
   cacheTtlSeconds: Number(process.env.CACHE_TTL_SECONDS || 60),
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 120),
   rateLimitWindowSeconds: Number(process.env.RATE_LIMIT_WINDOW_SECONDS || 60),
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  corsOrigins: (process.env.CORS_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   jwtSecret: process.env.JWT_SECRET || 'dev_secret_change_me',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret_change_me',
   accessTokenExpiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m',
@@ -36,13 +39,31 @@ if (!Number.isInteger(env.rateLimitMax) || env.rateLimitMax <= 0
 }
 
 if (env.nodeEnv === 'production') {
+  for (const name of ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']) {
+    if (!process.env[name]) {
+      throw new Error(`${name} must be configured in production`);
+    }
+  }
   for (const [name, value] of [
     ['JWT_SECRET', env.jwtSecret],
     ['JWT_REFRESH_SECRET', env.jwtRefreshSecret],
   ]) {
-    if (value.length < 32 || value.includes('change_me')) {
+    if (value.length < 32 || new Set(value).size < 8 || /change_me/i.test(value)) {
       throw new Error(`${name} must be a strong, unique secret in production`);
     }
+  }
+  if (env.jwtSecret === env.jwtRefreshSecret) {
+    throw new Error('JWT_SECRET and JWT_REFRESH_SECRET must be different');
+  }
+  if (!env.corsOrigins.length || env.corsOrigins.some((origin) => {
+    try {
+      const parsed = new URL(origin);
+      return parsed.origin !== origin || parsed.protocol !== 'https:';
+    } catch {
+      return true;
+    }
+  })) {
+    throw new Error('CORS_ORIGIN must contain HTTPS origins without paths in production');
   }
 }
 

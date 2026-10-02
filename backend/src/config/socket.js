@@ -8,7 +8,7 @@ let io;
 function initSocket(server) {
   io = new Server(server, {
     cors: {
-      origin: env.corsOrigin,
+      origin: env.corsOrigins,
       methods: ['GET', 'POST', 'PATCH'],
       credentials: true,
     },

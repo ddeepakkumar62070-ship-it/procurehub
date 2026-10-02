@@ -85,6 +85,12 @@ async function updateUserActive(userId, active, actorUserId) {
       [active, userId]
     );
     const after = updated.rows[0];
+    if (!active) {
+      await client.query(
+        'UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL',
+        [userId]
+      );
+    }
     await adminAuditService.record(client, {
       actorUserId,
       action: active ? 'USER_ACTIVATED' : 'USER_DEACTIVATED',
@@ -95,6 +101,7 @@ async function updateUserActive(userId, active, actorUserId) {
     });
     return after;
   });
+  if (!active) require('../config/socket').disconnectUser(userId);
   await redisData.invalidateReadCache();
   return user;
 }
@@ -145,7 +152,7 @@ async function listSuppliers(filters) {
 }
 
 async function updateSupplierVerification(userId, status, actorUserId) {
-  return withTransaction(async (client) => {
+  const supplier = await withTransaction(async (client) => {
     const selected = await client.query(
       `SELECT user_id, verification_status, is_suspended
        FROM supplier_profiles WHERE user_id = $1 FOR UPDATE`,
@@ -170,6 +177,8 @@ async function updateSupplierVerification(userId, status, actorUserId) {
     });
     return after;
   });
+  await redisData.invalidateReadCache();
+  return supplier;
 }
 
 async function updateSupplierSuspension(userId, isSuspended, reason, actorUserId) {

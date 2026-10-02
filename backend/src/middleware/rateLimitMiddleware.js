@@ -1,5 +1,6 @@
 const { redisClient } = require('../config/redis');
 const env = require('../config/env');
+const { AppError } = require('../utils/errors');
 
 const incrementWindowScript = `
   local count = redis.call('INCR', KEYS[1])
@@ -13,10 +14,7 @@ function createRateLimit({ limit = env.rateLimitMax, windowSeconds = env.rateLim
   return async function rateLimit(req, res, next) {
     if (env.nodeEnv === 'test' && !redisClient.isOpen) return next();
     if (!redisClient.isOpen) {
-      const error = new Error('Redis is unavailable for API rate limiting');
-      error.statusCode = 503;
-      error.code = 'RATE_LIMITER_UNAVAILABLE';
-      return next(error);
+      return next(new AppError('Rate limiting is temporarily unavailable', 503, 'RATE_LIMITER_UNAVAILABLE'));
     }
 
     const identifier = req.ip || req.socket.remoteAddress || 'unknown';

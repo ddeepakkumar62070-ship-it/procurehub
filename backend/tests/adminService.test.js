@@ -8,10 +8,14 @@ jest.mock('../src/services/adminAuditService', () => ({
 jest.mock('../src/config/redisData', () => ({
   invalidateReadCache: jest.fn(),
 }));
+jest.mock('../src/config/socket', () => ({
+  disconnectUser: jest.fn(),
+}));
 
 const { pool } = require('../src/config/db');
 const adminAuditService = require('../src/services/adminAuditService');
 const redisData = require('../src/config/redisData');
+const socketService = require('../src/config/socket');
 const adminService = require('../src/services/adminService');
 
 const adminId = 'admin-id';
@@ -56,6 +60,30 @@ describe('admin audit transactions', () => {
     ]);
   });
 
+  it('revokes refresh tokens and disconnects sockets when deactivating a user', async () => {
+    const before = { id: entityId, email: 'user@example.com', is_active: true };
+    const after = { id: entityId, email: 'user@example.com', is_active: false };
+    const client = mockTransaction([
+      { rows: [] },
+      { rows: [before] },
+      { rows: [after] },
+      { rows: [], rowCount: 2 },
+      { rows: [] },
+    ]);
+
+    await expect(adminService.updateUserActive(entityId, false, adminId)).resolves.toEqual(after);
+
+    expect(client.query.mock.calls.map(([sql]) => sql)).toEqual([
+      'BEGIN',
+      expect.stringContaining('FOR UPDATE'),
+      expect.stringContaining('UPDATE users'),
+      expect.stringContaining('UPDATE refresh_tokens'),
+      'COMMIT',
+    ]);
+    expect(socketService.disconnectUser).toHaveBeenCalledWith(entityId);
+    expect(redisData.invalidateReadCache).toHaveBeenCalledTimes(1);
+  });
+
   it('audits supplier suspension and invalidates marketplace caches', async () => {
     const before = { user_id: entityId, is_suspended: false, suspension_reason: null };
     const after = {
@@ -84,6 +112,34 @@ describe('admin audit transactions', () => {
       entityId,
       before: { isSuspended: false, reason: null },
       after: { isSuspended: true, reason: 'Repeated policy violations' },
+    }));
+    expect(redisData.invalidateReadCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates marketplace caches after supplier verification changes', async () => {
+    const before = {
+      user_id: entityId,
+      verification_status: 'PENDING',
+      is_suspended: false,
+    };
+    const after = {
+      user_id: entityId,
+      verification_status: 'VERIFIED',
+      is_suspended: false,
+    };
+    const client = mockTransaction([
+      { rows: [] },
+      { rows: [before] },
+      { rows: [after] },
+      { rows: [] },
+    ]);
+
+    await expect(adminService.updateSupplierVerification(entityId, 'VERIFIED', adminId))
+      .resolves.toEqual(after);
+    expect(adminAuditService.record).toHaveBeenCalledWith(client, expect.objectContaining({
+      actorUserId: adminId,
+      action: 'SUPPLIER_VERIFICATION_UPDATED',
+      entityId,
     }));
     expect(redisData.invalidateReadCache).toHaveBeenCalledTimes(1);
   });
