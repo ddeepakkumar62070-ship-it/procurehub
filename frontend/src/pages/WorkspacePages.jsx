@@ -179,12 +179,12 @@ export function InvoiceListPage() {
   return (
     <section className="page-stack">
       <PageHeader eyebrow={role === 'BUYER' ? 'Buyer workspace' : 'Supplier workspace'} title="Invoices & payments" description="Track invoice status, balances, and simulated payments." />
-      <label className="filter-control">Status
+      <div className="toolbar-filters"><label className="filter-control">Status
         <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
           <option value="">All statuses</option>
           {['UNPAID', 'PAYMENT_INITIATED', 'PAID', 'PARTIALLY_PAID', 'OVERDUE', 'REFUNDED'].map((value) => <option key={value}>{value}</option>)}
         </select>
-      </label>
+      </label></div>
       {error && <ErrorState message={error} />}
       {busy ? <LoadingState label="Loading invoices…" />
         : result.data.length === 0 ? <EmptyState title="No invoices found" />
@@ -619,9 +619,9 @@ export function SupplierQuotationsPage() {
   );
   return <section className="page-stack">
     <PageHeader eyebrow="Supplier workspace" title="Quotations" description="Track submitted offers, buyer decisions, and quotation expiry." />
-    <label className="filter-control">Status<select value={status} onChange={(event) => { setStatus(event.target.value); state.setPage(1); }}>
+    <div className="toolbar-filters"><label className="filter-control">Status<select value={status} onChange={(event) => { setStatus(event.target.value); state.setPage(1); }}>
       <option value="">All statuses</option>{['SUBMITTED', 'ACCEPTED', 'REJECTED', 'EXPIRED'].map((value) => <option key={value}>{value}</option>)}
-    </select></label>
+    </select></label></div>
     {state.error && <ErrorState message={state.error} onRetry={state.reload} />}
     {state.isLoading ? <LoadingState label="Loading quotations…" />
       : state.result.data.length === 0 ? <EmptyState title="No quotations found" description="Eligible requests can be quoted from the purchase requests page." />

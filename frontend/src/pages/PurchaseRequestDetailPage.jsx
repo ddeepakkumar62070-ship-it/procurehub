@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { purchaseRequestApi } from '../api/purchaseRequestApi';
 import { quotationApi } from '../api/quotationApi';
 import SupplierQuotationForm from '../components/SupplierQuotationForm';
+import { StatusBadge } from '../components/PageStates';
 import { useAuthStore } from '../store/authStore';
 
 function PurchaseRequestDetailPage({ supplierView = false }) {
@@ -161,48 +162,28 @@ function PurchaseRequestDetailPage({ supplierView = false }) {
                   </p>
                 )}
                 {!quotations.length && <p className="muted">No quotations received yet.</p>}
-                <div className="quotation-list">
-                  {quotations.map((quotation) => {
+                {quotations.length > 0 && <div className="table-scroll comparison-table">
+                  <table><thead><tr><th>Supplier</th><th>Price</th><th>Delivery</th><th>Rating</th><th>Valid until</th><th>Items & notes</th><th>Decision</th></tr></thead>
+                    <tbody>{quotations.map((quotation) => {
                     const expired = new Date(quotation.valid_until).getTime() <= Date.now();
                     const actionable = quotation.status === 'SUBMITTED' && !expired
                       && purchaseRequest.status !== 'CANCELLED'
                       && purchaseRequest.status !== 'QUOTATION_ACCEPTED';
                     return (
-                      <article className="quotation-card" key={quotation.id}>
-                        <div className="quotation-card-heading">
-                          <div>
-                            <span className="product-category">{quotation.quotation_number} · {quotation.status}</span>
-                            <h3>{quotation.supplier_business_name}</h3>
-                            <p className="muted">
-                              {[quotation.supplier_city, quotation.supplier_state, quotation.supplier_country].filter(Boolean).join(', ')}
-                              {' · '}{quotation.verification_status}
-                            </p>
-                          </div>
-                          <strong className="quotation-total">{quotation.currency} {quotation.subtotal}</strong>
-                        </div>
-                        <div className="quotation-metrics">
-                          <span>Delivery: {quotation.delivery_time_days} days</span>
-                          <span>
-                            Rating: {quotation.rating_average
-                              ? `${quotation.rating_average} / 5 (${quotation.rating_count})`
-                              : 'Not yet rated'}
-                          </span>
-                          <span>Valid until: {new Date(quotation.valid_until).toLocaleString()}</span>
-                        </div>
-                        <div className="request-items-table">
-                          {quotation.items.map((item) => (
-                            <div className="request-item" key={item.id}>
-                              <span>{item.product_name} × {item.quantity}</span>
-                              <span>{quotation.currency} {item.unit_price} each · {quotation.currency} {item.line_total}</span>
-                            </div>
-                          ))}
-                        </div>
-                        {quotation.notes && <p>{quotation.notes}</p>}
-                        {expired && quotation.status === 'SUBMITTED' && (
-                          <p className="stock-warning">This quotation has expired.</p>
-                        )}
+                      <tr key={quotation.id}>
+                        <td><strong>{quotation.supplier_business_name}</strong><small className="table-subtext">{quotation.quotation_number} · {[quotation.supplier_city, quotation.supplier_state, quotation.supplier_country].filter(Boolean).join(', ')}</small><small className="table-subtext">{quotation.verification_status}</small></td>
+                        <td><strong>{quotation.currency} {quotation.subtotal}</strong></td>
+                        <td>{quotation.delivery_time_days} days</td>
+                        <td>{quotation.rating_average ? `${quotation.rating_average} / 5 (${quotation.rating_count})` : 'Not yet rated'}</td>
+                        <td>{new Date(quotation.valid_until).toLocaleDateString()}<small className="table-subtext"><StatusBadge>{expired && quotation.status === 'SUBMITTED' ? 'EXPIRED' : quotation.status}</StatusBadge></small></td>
+                        <td><details><summary>View {quotation.items.length} item(s){quotation.notes ? ' & notes' : ''}</summary>
+                          <div className="quote-breakdown">{quotation.items.map((item) => (
+                            <div key={item.id}><span>{item.product_name} × {item.quantity}</span><span>{quotation.currency} {item.unit_price} each · {quotation.currency} {item.line_total}</span></div>
+                          ))}{quotation.notes && <p>{quotation.notes}</p>}</div>
+                        </details></td>
+                        <td>
                         {actionable && (
-                          <div className="quotation-actions">
+                          <div className="quotation-actions comparison-actions">
                             <button
                               className="primary-button"
                               disabled={quotationBusyId === quotation.id}
@@ -219,10 +200,13 @@ function PurchaseRequestDetailPage({ supplierView = false }) {
                             </button>
                           </div>
                         )}
-                      </article>
+                        {!actionable && <StatusBadge>{quotation.status}</StatusBadge>}
+                        </td>
+                      </tr>
                     );
-                  })}
-                </div>
+                    })}</tbody>
+                  </table>
+                </div>}
               </section>
             )}
           </>

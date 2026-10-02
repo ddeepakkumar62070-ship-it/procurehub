@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { catalogApi } from '../api/catalogApi';
 import { purchaseRequestApi } from '../api/purchaseRequestApi';
 import { useAuthStore } from '../store/authStore';
+import { EmptyState, StatusBadge } from '../components/PageStates';
 
 function PurchaseRequestsPage() {
   const user = useAuthStore((state) => state.user);
@@ -75,10 +76,13 @@ function PurchaseRequestsPage() {
         </nav>
       </header>
       <section className="dashboard-card request-card">
-        <p className="eyebrow">{isSupplier ? 'Supplier marketplace' : 'Buyer workspace'}</p>
-        <h1>{isSupplier ? 'Eligible purchase requests' : 'My purchase requests'}</h1>
+        <div className="page-heading">
+          <div><p className="eyebrow">{isSupplier ? 'Supplier marketplace' : 'Buyer workspace'}</p>
+            <h1>{isSupplier ? 'Eligible purchase requests' : 'My purchase requests'}</h1></div>
+          {!isSupplier && <Link className="primary-button button-link" to="/purchase-requests/new">Create request</Link>}
+        </div>
         {isSupplier && (
-          <div className="catalog-filters request-filters">
+          <div className="toolbar-filters request-filters">
             <label>Search requests<input name="keyword" value={filters.keyword} onChange={updateFilter} placeholder="Title, notes, or requested product" /></label>
             <label>Product category
               <select name="category" value={filters.category} onChange={updateFilter}>
@@ -90,7 +94,7 @@ function PurchaseRequestsPage() {
           </div>
         )}
         {!isSupplier && (
-          <div className="request-list-toolbar">
+          <div className="toolbar-filters">
             <label>Status
               <select name="status" value={filters.status} onChange={updateFilter}>
                 <option value="">All requests</option>
@@ -100,33 +104,26 @@ function PurchaseRequestsPage() {
                 <option value="CANCELLED">Cancelled</option>
               </select>
             </label>
-            <Link className="primary-button button-link" to="/purchase-requests/new">Create request</Link>
           </div>
         )}
         {error && <p className="form-error" role="alert">{error}</p>}
         {isLoading && <p className="muted">Loading requests…</p>}
-        {!isLoading && !result.data.length && <p className="muted">No requests match these filters.</p>}
-        <div className="request-list">
-          {result.data.map((purchaseRequest) => (
-            <Link className="request-list-item" key={purchaseRequest.id} to={`${detailPath}/${purchaseRequest.id}`}>
-              <div>
-                <span className="product-category">
-                  {purchaseRequest.request_number}
-                  {!isSupplier && ` · ${purchaseRequest.status}`}
-                </span>
-                <h2>{purchaseRequest.title}</h2>
-                <p className="muted">
-                  {isSupplier ? purchaseRequest.buyer_business_name : `${purchaseRequest.item_count} item(s)`}
-                  {' · '}
-                  Delivery by {new Date(`${purchaseRequest.required_delivery_date.slice(0, 10)}T00:00:00`).toLocaleDateString()}
-                  {' · '}
-                  {purchaseRequest.delivery_location.city}, {purchaseRequest.delivery_location.country}
-                </p>
-              </div>
-              <span aria-hidden="true">View →</span>
-            </Link>
-          ))}
-        </div>
+        {!isLoading && !result.data.length && <EmptyState title="No requests match these filters." />}
+        {!isLoading && result.data.length > 0 && <div className="table-scroll">
+          <table><thead><tr><th>Request</th>{isSupplier && <th>Buyer</th>}<th>Items</th><th>Delivery by</th><th>Location</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>{result.data.map((purchaseRequest) => (
+              <tr key={purchaseRequest.id}>
+                <td><Link to={`${detailPath}/${purchaseRequest.id}`}>{purchaseRequest.request_number}</Link><small className="table-subtext">{purchaseRequest.title}</small></td>
+                {isSupplier && <td>{purchaseRequest.buyer_business_name}</td>}
+                <td>{purchaseRequest.item_count}</td>
+                <td>{new Date(`${purchaseRequest.required_delivery_date.slice(0, 10)}T00:00:00`).toLocaleDateString()}</td>
+                <td>{purchaseRequest.delivery_location.city}, {purchaseRequest.delivery_location.country}</td>
+                <td><StatusBadge>{purchaseRequest.status}</StatusBadge></td>
+                <td><Link to={`${detailPath}/${purchaseRequest.id}`}>{isSupplier ? 'Review request' : 'View request'}</Link></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>}
         <footer className="pagination-bar">
           <span className="muted">{result.total} request(s) · Page {page} of {Math.max(result.totalPages, 1)}</span>
           <div>

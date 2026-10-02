@@ -78,8 +78,10 @@ function CatalogPage() {
         </nav>
       </header>
       <section className="dashboard-card catalog-card">
-        <p className="eyebrow">Product marketplace</p>
-        <h1>Find products and suppliers</h1>
+        <div className="page-heading">
+          <div><p className="eyebrow">Product marketplace</p><h1>Products & suppliers</h1></div>
+          {user && <Link className="secondary-button button-link" to="/dashboard">Workspace</Link>}
+        </div>
         <form className="catalog-filters" onSubmit={(event) => event.preventDefault()}>
           <label className="catalog-keyword">
             Search
@@ -93,8 +95,8 @@ function CatalogPage() {
               ))}
             </select>
           </label>
-          <label>Supplier ID
-            <input name="supplier" value={filters.supplier} onChange={updateFilter} placeholder="Optional supplier UUID" />
+          <label>Supplier
+            <input name="supplier" value={filters.supplier} onChange={updateFilter} placeholder="Supplier ID" />
           </label>
           <label>Min price
             <input name="minPrice" type="number" min="0" step="0.01" value={filters.minPrice} onChange={updateFilter} />
@@ -102,10 +104,10 @@ function CatalogPage() {
           <label>Max price
             <input name="maxPrice" type="number" min="0" step="0.01" value={filters.maxPrice} onChange={updateFilter} />
           </label>
-          <label>Currency for price filters
+          <label>Currency
             <input name="currency" minLength={3} maxLength={3} value={filters.currency} onChange={updateFilter} placeholder="e.g. USD" />
           </label>
-          <label>Supplier offer availability
+          <label>Availability
             <select name="availability" value={filters.availability} onChange={updateFilter}>
               <option value="">Any offer status</option>
               <option value="true">An offer has stock</option>
@@ -127,30 +129,28 @@ function CatalogPage() {
         {!isLoading && !error && result.data.length === 0 && (
           <p className="muted">No matching products found. Try changing the filters.</p>
         )}
-        <div className="product-grid">
-          {result.data.map((product) => (
-            <article className="product-card" key={product.id}>
-              <span className="product-category">{product.category_name}</span>
-              <h2>{product.name}</h2>
-              <p className="muted">SKU: {product.sku}</p>
-              <p>{product.description || 'Supplier-listed product'}</p>
-              <div className="product-price">
-                {product.price_ranges
+        {!isLoading && result.data.length > 0 && <div className="table-scroll product-table">
+          <table><thead><tr><th>Product</th><th>Category</th><th>Supplier pricing</th><th>Suppliers</th><th>Available</th><th>Action</th></tr></thead>
+            <tbody>{result.data.map((product) => (
+              <tr key={product.id}>
+                <td><strong>{product.name}</strong><small className="table-subtext">SKU {product.sku} · {product.description || 'Supplier-listed product'}</small></td>
+                <td>{product.category_name || '—'}</td>
+                <td>{product.price_ranges
                   ? Object.entries(product.price_ranges).map(([currency, range]) => (
-                    <p key={currency}>
+                    <span className="price-range" key={currency}>
                       {currency} {range.min}{range.max !== range.min ? ` – ${range.max}` : ''}
-                    </p>
+                    </span>
                   ))
-                  : 'No supplier offers yet'}
-              </div>
-              <p className="muted">
-                {product.supplier_count} supplier{product.supplier_count === 1 ? '' : 's'}
-                {' · '}
-                {product.available_quantity} available
-              </p>
-            </article>
-          ))}
-        </div>
+                  : <span className="muted">No offers</span>}</td>
+                <td>{product.supplier_count}</td>
+                <td>{product.available_quantity}</td>
+                <td>{user?.roles.includes('BUYER')
+                  ? <Link to="/purchase-requests/new">Request quote</Link>
+                  : <span className="muted">—</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>}
 
         <footer className="pagination-bar">
           <span className="muted">

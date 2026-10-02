@@ -5,38 +5,58 @@ import { useToast } from './ToastProvider';
 
 const navigation = {
   BUYER: [
-    ['Dashboard', '/dashboard'],
-    ['Products', '/products'],
-    ['Suppliers', '/suppliers'],
-    ['Create request', '/purchase-requests/new'],
-    ['My requests', '/purchase-requests'],
-    ['Orders', '/purchase-orders'],
-    ['Invoices & payments', '/invoices'],
-    ['Disputes', '/disputes'],
-    ['Profile', '/profile'],
+    ['Workspace', [
+      ['Overview', '/dashboard'],
+      ['Products', '/products'],
+      ['Suppliers', '/suppliers'],
+    ]],
+    ['Procurement', [
+      ['New request', '/purchase-requests/new'],
+      ['My requests', '/purchase-requests'],
+      ['Purchase orders', '/purchase-orders'],
+    ]],
+    ['Finance & support', [
+      ['Invoices & payments', '/invoices'],
+      ['Disputes', '/disputes'],
+    ]],
+    ['Account', [['Profile', '/profile']]],
   ],
   SUPPLIER: [
-    ['Dashboard', '/dashboard'],
-    ['Products', '/supplier/products'],
-    ['Inventory', '/inventory'],
-    ['Purchase requests', '/supplier/requests'],
-    ['Quotations', '/supplier/quotations'],
-    ['Orders', '/supplier/orders'],
-    ['Shipments', '/supplier/shipments'],
-    ['Invoices', '/invoices'],
-    ['Analytics', '/supplier/analytics'],
-    ['Disputes', '/supplier/disputes'],
-    ['Profile', '/profile'],
+    ['Workspace', [
+      ['Overview', '/dashboard'],
+      ['Analytics', '/supplier/analytics'],
+    ]],
+    ['Catalog & inventory', [
+      ['Products & offers', '/supplier/products'],
+      ['Inventory', '/inventory'],
+    ]],
+    ['Procurement', [
+      ['Purchase requests', '/supplier/requests'],
+      ['Quotations', '/supplier/quotations'],
+      ['Orders', '/supplier/orders'],
+      ['Shipments', '/supplier/shipments'],
+    ]],
+    ['Finance & support', [
+      ['Invoices', '/invoices'],
+      ['Disputes', '/supplier/disputes'],
+    ]],
+    ['Account', [['Profile', '/profile']]],
   ],
   ADMIN: [
-    ['Dashboard', '/dashboard'],
-    ['Users', '/admin/users'],
-    ['Suppliers', '/admin/suppliers'],
-    ['Categories & products', '/admin/catalog'],
-    ['Orders', '/admin/orders'],
-    ['Disputes', '/admin/disputes'],
-    ['Audit logs', '/admin/audit-logs'],
-    ['Analytics', '/admin/analytics'],
+    ['Workspace', [
+      ['Overview', '/dashboard'],
+      ['Analytics', '/admin/analytics'],
+    ]],
+    ['Platform', [
+      ['Users', '/admin/users'],
+      ['Suppliers', '/admin/suppliers'],
+      ['Categories & products', '/admin/catalog'],
+    ]],
+    ['Operations', [
+      ['Orders', '/admin/orders'],
+      ['Disputes', '/admin/disputes'],
+      ['Audit logs', '/admin/audit-logs'],
+    ]],
   ],
 };
 
@@ -64,10 +84,15 @@ function AppShell() {
         <NavLink className="brand" to="/dashboard">ProcureHub</NavLink>
         <div className="workspace-role">{role.toLowerCase()} workspace</div>
         <nav aria-label={`${role.toLowerCase()} navigation`}>
-          {navigation[role].map(([label, path]) => (
-            <NavLink key={path} to={path} end={path === '/dashboard'}>
-              {label}
-            </NavLink>
+          {navigation[role].map(([group, links]) => (
+            <div className="nav-group" key={group}>
+              <span className="nav-group-title">{group}</span>
+              {links.map(([label, path]) => (
+                <NavLink key={path} to={path} end={path === '/dashboard'}>
+                  {label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-user">
