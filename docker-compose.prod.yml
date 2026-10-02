@@ -1,0 +1,113 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-procurehub}
+      POSTGRES_USER: ${DB_USER:-procurehub}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: production
+    command: ["npm", "run", "db:migrate"]
+    environment: &backend_environment
+      NODE_ENV: production
+      PORT: 4000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-procurehub}
+      DB_USER: ${DB_USER:-procurehub}
+      DB_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      JWT_SECRET: ${JWT_SECRET:?Set a strong JWT_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set a distinct strong JWT_REFRESH_SECRET in .env}
+      ACCESS_TOKEN_EXPIRES_IN: ${ACCESS_TOKEN_EXPIRES_IN:-15m}
+      REFRESH_TOKEN_EXPIRES_IN_DAYS: ${REFRESH_TOKEN_EXPIRES_IN_DAYS:-7}
+      ORDER_RESERVATION_TTL_HOURS: ${ORDER_RESERVATION_TTL_HOURS:-24}
+      REFRESH_COOKIE_NAME: ${REFRESH_COOKIE_NAME:-procurehub_refresh}
+      CORS_ORIGIN: ${CORS_ORIGIN:?Set the public HTTPS frontend origin in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: production
+    restart: unless-stopped
+    environment:
+      <<: *backend_environment
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: production
+      args:
+        VITE_API_URL: ${FRONTEND_API_URL:?Set the browser-reachable API origin in .env}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  redis_data:
