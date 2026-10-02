@@ -145,7 +145,11 @@ async function login(email, password) {
   const result = await query(
     `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.is_active
      FROM users u
-     WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
+     WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM supplier_profiles sp
+         WHERE sp.user_id = u.id AND sp.is_suspended = TRUE
+       )`,
     [email]
   );
   const user = result.rows[0];
@@ -182,6 +186,10 @@ async function refresh(token) {
          AND rt.expires_at > NOW()
          AND u.is_active = TRUE
          AND u.deleted_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM supplier_profiles sp
+           WHERE sp.user_id = u.id AND sp.is_suspended = TRUE
+         )
        FOR UPDATE OF rt`,
       [tokenHash]
     );
@@ -224,18 +232,23 @@ async function logout(token) {
 async function getActiveUser(userId) {
   const result = await query(
     `SELECT u.id, u.email, u.first_name, u.last_name, u.phone, u.is_active,
+            COALESCE(BOOL_OR(sp.is_suspended), FALSE) AS supplier_suspended,
             COALESCE(
               ARRAY_AGG(r.name) FILTER (WHERE r.name IS NOT NULL),
               ARRAY[]::TEXT[]
             ) AS roles
-     FROM users u
-     LEFT JOIN user_roles ur ON ur.user_id = u.id
-     LEFT JOIN roles r ON r.id = ur.role_id
-     WHERE u.id = $1 AND u.is_active = TRUE AND u.deleted_at IS NULL
+    FROM users u
+    LEFT JOIN user_roles ur ON ur.user_id = u.id
+    LEFT JOIN roles r ON r.id = ur.role_id
+    LEFT JOIN supplier_profiles sp ON sp.user_id = u.id
+    WHERE u.id = $1 AND u.is_active = TRUE AND u.deleted_at IS NULL
      GROUP BY u.id`,
     [userId]
   );
-  if (!result.rows[0]) throw new UnauthorizedError('Account is unavailable');
+  if (!result.rows[0] || (result.rows[0].supplier_suspended
+    && result.rows[0].roles.includes('SUPPLIER'))) {
+    throw new UnauthorizedError('Account is unavailable');
+  }
   return result.rows[0];
 }
 

@@ -2,7 +2,12 @@ const { query } = require('../config/db');
 
 async function list(filters) {
   const values = [];
-  const conditions = ['u.is_active = TRUE', 'u.deleted_at IS NULL', "sp.verification_status = 'VERIFIED'"];
+  const conditions = [
+    'u.is_active = TRUE',
+    'u.deleted_at IS NULL',
+    "sp.verification_status = 'VERIFIED'",
+    'sp.is_suspended = FALSE',
+  ];
   if (filters.search) {
     values.push(`%${filters.search}%`);
     conditions.push(`(b.name ILIKE $${values.length}
@@ -45,7 +50,8 @@ async function get(id) {
      FROM supplier_profiles sp
      JOIN users u ON u.id = sp.user_id AND u.is_active = TRUE AND u.deleted_at IS NULL
      JOIN businesses b ON b.id = sp.business_id
-     WHERE sp.user_id = $1 AND sp.verification_status = 'VERIFIED'`,
+     WHERE sp.user_id = $1 AND sp.verification_status = 'VERIFIED'
+       AND sp.is_suspended = FALSE`,
     [id]
   );
   const result = supplier.rows[0];

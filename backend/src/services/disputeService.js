@@ -1,5 +1,6 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, ForbiddenError, NotFoundError } = require('../utils/errors');
+const adminAuditService = require('./adminAuditService');
 
 const DISPUTE_TRANSITIONS = {
   OPEN: ['UNDER_REVIEW', 'RESOLVED', 'REJECTED'],
@@ -21,10 +22,10 @@ async function create(user, input) {
     );
     if (!order.rows[0]) throw new NotFoundError('Purchase order not found');
     const result = await client.query(
-      `INSERT INTO order_disputes (order_id, opened_by, category, title, description)
+      `INSERT INTO order_disputes (order_id, opened_by, type, title, description)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, order_id, opened_by, category, title, description, status, created_at`,
-      [input.orderId, user.id, input.category, input.title, input.description]
+       RETURNING id, order_id, opened_by, type, title, description, status, created_at`,
+      [input.orderId, user.id, input.type, input.title, input.description]
     );
     await client.query(
       `INSERT INTO order_dispute_audit_logs
@@ -70,7 +71,7 @@ async function list(user, filters, admin = false) {
   const count = await query(`SELECT COUNT(*)::INTEGER AS total ${from} WHERE ${where}`, values);
   const result = await query(
     `SELECT d.id, d.order_id, po.order_number, d.opened_by,
-            opener.email AS opened_by_email, d.category, d.title, d.description,
+            opener.email AS opened_by_email, d.type, d.title, d.description,
             d.status, d.resolution, d.resolved_by, d.resolved_at, d.created_at, d.updated_at
      ${from}
      WHERE ${where}
@@ -108,7 +109,7 @@ async function updateStatus(actor, id, input) {
            resolved_at = CASE WHEN $1 IN ('RESOLVED', 'REJECTED') THEN NOW() ELSE NULL END,
            updated_at = NOW()
        WHERE id = $4
-       RETURNING id, order_id, opened_by, category, title, description, status,
+       RETURNING id, order_id, opened_by, type, title, description, status,
                  resolution, resolved_by, resolved_at, created_at, updated_at`,
       [input.status, input.resolution || null, actor.id, id]
     );
@@ -118,6 +119,15 @@ async function updateStatus(actor, id, input) {
        VALUES ($1, $2, $3, $4, $5)`,
       [id, actor.id, dispute.status, input.status, input.resolution || null]
     );
+    await adminAuditService.record(client, {
+      actorUserId: actor.id,
+      action: 'DISPUTE_STATUS_UPDATED',
+      entityType: 'DISPUTE',
+      entityId: id,
+      before: { status: dispute.status },
+      after: { status: input.status },
+      reason: input.resolution || null,
+    });
     await client.query('COMMIT');
     return result.rows[0];
   } catch (error) {

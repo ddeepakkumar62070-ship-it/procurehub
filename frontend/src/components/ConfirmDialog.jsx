@@ -4,6 +4,7 @@ export default function ConfirmDialog({
   children,
   confirmLabel = 'Confirm',
   isBusy = false,
+  isConfirmDisabled = false,
   onCancel,
   onConfirm,
   destructive = false,
@@ -22,7 +23,7 @@ export default function ConfirmDialog({
             type="button"
             className={destructive ? 'danger-button' : 'primary-button'}
             onClick={onConfirm}
-            disabled={isBusy}
+            disabled={isBusy || isConfirmDisabled}
           >
             {isBusy ? 'Working…' : confirmLabel}
           </button>

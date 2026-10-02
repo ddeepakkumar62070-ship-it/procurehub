@@ -2,9 +2,13 @@ jest.mock('../src/config/db', () => ({
   pool: { connect: jest.fn() },
   query: jest.fn(),
 }));
+jest.mock('../src/services/adminAuditService', () => ({
+  record: jest.fn(),
+}));
 
 const { pool } = require('../src/config/db');
 const disputeService = require('../src/services/disputeService');
+const adminAuditService = require('../src/services/adminAuditService');
 
 const buyer = { id: 'buyer-id', roles: ['BUYER'] };
 const orderId = 'order-id';
@@ -39,7 +43,7 @@ describe('dispute service transaction handling', () => {
 
     await expect(disputeService.create(buyer, {
       orderId,
-      category: 'DELIVERY',
+      type: 'ORDER_NOT_RECEIVED',
       title: 'Late shipment',
       description: 'The shipment has not moved for multiple days.',
     })).resolves.toEqual(dispute);
@@ -49,6 +53,7 @@ describe('dispute service transaction handling', () => {
     expect(calls[2]).toContain('INSERT INTO order_disputes');
     expect(calls[3]).toContain('INSERT INTO order_dispute_audit_logs');
     expect(calls[4]).toBe('COMMIT');
+    expect(adminAuditService.record).not.toHaveBeenCalled();
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 
@@ -61,7 +66,7 @@ describe('dispute service transaction handling', () => {
 
     await expect(disputeService.create(buyer, {
       orderId,
-      category: 'DELIVERY',
+      type: 'ORDER_NOT_RECEIVED',
       title: 'Late shipment',
       description: 'The shipment has not moved for multiple days.',
     })).rejects.toMatchObject({ statusCode: 404 });
@@ -82,6 +87,7 @@ describe('dispute service transaction handling', () => {
       { status: 'UNDER_REVIEW' }
     )).rejects.toMatchObject({ code: 'INVALID_DISPUTE_TRANSITION' });
     expect(calls).toEqual(['BEGIN', expect.stringContaining('FOR UPDATE'), 'ROLLBACK']);
+    expect(adminAuditService.record).not.toHaveBeenCalled();
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 
@@ -92,5 +98,32 @@ describe('dispute service transaction handling', () => {
       { status: 'UNDER_REVIEW' }
     )).rejects.toMatchObject({ statusCode: 403 });
     expect(pool.connect).not.toHaveBeenCalled();
+  });
+
+  it('audits a valid admin status transition in the same transaction', async () => {
+    const updated = { id: disputeId, order_id: orderId, status: 'UNDER_REVIEW' };
+    const { client, calls } = transactionClient([
+      { rows: [] },
+      { rows: [{ id: disputeId, status: 'OPEN' }] },
+      { rows: [updated] },
+      { rows: [], rowCount: 1 },
+      { rows: [] },
+    ]);
+
+    await expect(disputeService.updateStatus(
+      { id: 'admin-id', roles: ['ADMIN'] },
+      disputeId,
+      { status: 'UNDER_REVIEW' }
+    )).resolves.toEqual(updated);
+    expect(adminAuditService.record).toHaveBeenCalledWith(client, {
+      actorUserId: 'admin-id',
+      action: 'DISPUTE_STATUS_UPDATED',
+      entityType: 'DISPUTE',
+      entityId: disputeId,
+      before: { status: 'OPEN' },
+      after: { status: 'UNDER_REVIEW' },
+      reason: null,
+    });
+    expect(calls.at(-1)).toBe('COMMIT');
   });
 });

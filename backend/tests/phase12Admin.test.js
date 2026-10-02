@@ -10,6 +10,14 @@ jest.mock('../src/services/adminService', () => ({
   listOrders: jest.fn(),
   getOrder: jest.fn(),
   listAuditLogs: jest.fn(),
+  updateSupplierSuspension: jest.fn(),
+  listCategories: jest.fn(),
+  createCategory: jest.fn(),
+  updateCategory: jest.fn(),
+  deactivateCategory: jest.fn(),
+  createProduct: jest.fn(),
+  updateProduct: jest.fn(),
+  deactivateProduct: jest.fn(),
 }));
 jest.mock('../src/services/disputeService', () => ({
   list: jest.fn(),
@@ -81,6 +89,28 @@ describe('Phase 12 administration APIs', () => {
       .send({ isActive: false });
     expect(update.status).toBe(200);
     expect(adminService.updateUserActive).toHaveBeenCalledWith(userId, false, admin.id);
+  });
+
+  it('requires a suspension reason and passes the admin identity to the service', async () => {
+    authService.getActiveUser.mockResolvedValue(admin);
+    adminService.updateSupplierSuspension.mockResolvedValue({ user_id: userId, is_suspended: true });
+    const invalid = await request(app)
+      .patch(`/api/admin/suppliers/${userId}/suspension`)
+      .set('Authorization', `Bearer ${tokenFor()}`)
+      .send({ isSuspended: true });
+    expect(invalid.status).toBe(400);
+
+    const response = await request(app)
+      .patch(`/api/admin/suppliers/${userId}/suspension`)
+      .set('Authorization', `Bearer ${tokenFor()}`)
+      .send({ isSuspended: true, reason: 'Repeated policy violations' });
+    expect(response.status).toBe(200);
+    expect(adminService.updateSupplierSuspension).toHaveBeenCalledWith(
+      userId,
+      true,
+      'Repeated policy violations',
+      admin.id
+    );
   });
 
   it('restricts dispute status changes to admins and validates resolution notes', async () => {

@@ -53,8 +53,11 @@ export function AnalyticsSummary({ data }) {
   const labels = {
     users: 'Users',
     suppliers: 'Suppliers',
+    suspended_suppliers: 'Suspended suppliers',
+    active_categories: 'Active categories',
     open_requests: 'Open requests',
     active_orders: 'Active orders',
+    open_disputes: 'Open disputes',
     outstanding_invoices: 'Outstanding invoices',
     paid_total: 'Paid total',
     active_products: 'Active products',
@@ -310,7 +313,7 @@ export function DisputePage({ admin = false }) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [orders, setOrders] = useState([]);
-  const [form, setForm] = useState({ orderId: '', category: 'DELIVERY', title: '', description: '' });
+  const [form, setForm] = useState({ orderId: '', type: 'ORDER_NOT_RECEIVED', title: '', description: '' });
   const [activeDispute, setActiveDispute] = useState(null);
   const [resolution, setResolution] = useState('');
   const [nextStatus, setNextStatus] = useState('UNDER_REVIEW');
@@ -332,7 +335,7 @@ export function DisputePage({ admin = false }) {
     try {
       await disputeApi.create(form);
       toast('Dispute opened.');
-      setForm({ orderId: '', category: 'DELIVERY', title: '', description: '' });
+      setForm({ orderId: '', type: 'ORDER_NOT_RECEIVED', title: '', description: '' });
       await load();
     } catch (submitError) {
       setError(requestMessage(submitError, 'Could not open dispute'));
@@ -364,7 +367,7 @@ export function DisputePage({ admin = false }) {
         <h2>Open a dispute</h2>
         <label>Order<select required value={form.orderId} onChange={(event) => setForm({ ...form, orderId: event.target.value })}><option value="">Select an order</option>
           {orders.map((order) => <option key={order.id} value={order.id}>{order.order_number} · {order.request_title}</option>)}</select></label>
-        <label>Category<select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>{['DELIVERY', 'QUALITY', 'PAYMENT', 'QUANTITY', 'OTHER'].map((category) => <option key={category}>{category}</option>)}</select></label>
+        <label>Type<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>{['ORDER_NOT_RECEIVED', 'DAMAGED_PRODUCT', 'WRONG_QUANTITY', 'WRONG_PRODUCT', 'PAYMENT_ISSUE', 'OTHER'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}</select></label>
         <label>Title<input required minLength={3} maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
         <label>Description<textarea required minLength={10} maxLength={5000} rows="4" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
         <button className="primary-button" disabled={saving || !orders.length}>{saving ? 'Opening…' : 'Open dispute'}</button>
@@ -376,7 +379,7 @@ export function DisputePage({ admin = false }) {
       {busy ? <LoadingState label="Loading disputes…" />
         : result.data.length === 0 ? <EmptyState title="No disputes" description="There are no disputes matching this view." />
           : <div className="table-scroll"><table><thead><tr><th>Order</th><th>Title</th><th>Category</th><th>Opened by</th><th>Status</th><th>Created</th>{admin && <th>Action</th>}</tr></thead>
-            <tbody>{result.data.map((dispute) => <tr key={dispute.id}><td>{dispute.order_number}</td><td>{dispute.title}<small className="table-subtext">{dispute.description}</small></td><td>{dispute.category}</td><td>{dispute.opened_by_email}</td><td><StatusBadge>{dispute.status}</StatusBadge></td><td>{new Date(dispute.created_at).toLocaleDateString()}</td>
+            <tbody>{result.data.map((dispute) => <tr key={dispute.id}><td>{dispute.order_number}</td><td>{dispute.title}<small className="table-subtext">{dispute.description}</small></td><td>{dispute.type.replaceAll('_', ' ')}</td><td>{dispute.opened_by_email}</td><td><StatusBadge>{dispute.status}</StatusBadge></td><td>{new Date(dispute.created_at).toLocaleDateString()}</td>
               {admin && <td>{['OPEN', 'UNDER_REVIEW'].includes(dispute.status) && <button className="secondary-button" type="button" onClick={() => { setActiveDispute(dispute); setNextStatus(dispute.status === 'OPEN' ? 'UNDER_REVIEW' : 'RESOLVED'); }}>Review</button>}</td>}</tr>)}</tbody></table></div>}
       <Pagination page={page} totalPages={result.totalPages} total={result.total || 0} onPageChange={setPage} isLoading={busy} />
       <ConfirmDialog open={Boolean(activeDispute)} title="Update dispute" confirmLabel="Save decision" isBusy={saving} onCancel={() => setActiveDispute(null)} onConfirm={updateDispute}>
@@ -429,8 +432,19 @@ export function AdminUsersPage() {
 export function AdminSuppliersPage() {
   const toast = useToast();
   const [search, setSearch] = useState('');
-  const loader = useCallback((page) => adminApi.suppliers({ page, limit: 20, ...(search && { search }) }), [search]);
-  const state = usePagedData(loader, [search]);
+  const [suspended, setSuspended] = useState('');
+  const [verificationStatus, setVerificationStatus] = useState('');
+  const [suspensionTarget, setSuspensionTarget] = useState(null);
+  const [suspensionReason, setSuspensionReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const loader = useCallback((page) => adminApi.suppliers({
+    page,
+    limit: 20,
+    ...(search && { search }),
+    ...(suspended && { suspended }),
+    ...(verificationStatus && { verificationStatus }),
+  }), [search, suspended, verificationStatus]);
+  const state = usePagedData(loader, [search, suspended, verificationStatus]);
   async function setVerification(supplier, verificationStatus) {
     try {
       await adminApi.updateSupplier(supplier.id, verificationStatus);
@@ -438,13 +452,51 @@ export function AdminSuppliersPage() {
       state.reload();
     } catch (error) { toast(requestMessage(error, 'Could not update supplier'), 'error'); }
   }
-  return <section className="page-stack"><PageHeader eyebrow="Administration" title="Suppliers" description="Review supplier directory and verification status." />
-    <input className="search-control" aria-label="Search suppliers" placeholder="Search business or email" value={search} onChange={(event) => { setSearch(event.target.value); state.setPage(1); }} />
+  async function updateSuspension() {
+    if (!suspensionTarget) return;
+    setSaving(true);
+    try {
+      await adminApi.updateSupplierSuspension(
+        suspensionTarget.id,
+        !suspensionTarget.is_suspended,
+        suspensionReason
+      );
+      toast(suspensionTarget.is_suspended ? 'Supplier reinstated.' : 'Supplier suspended.');
+      setSuspensionTarget(null);
+      setSuspensionReason('');
+      state.reload();
+    } catch (error) {
+      toast(requestMessage(error, 'Could not update supplier suspension'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <section className="page-stack"><PageHeader eyebrow="Administration" title="Suppliers" description="Verify suppliers, review account status, and suspend or reinstate access." />
+    <div className="toolbar-filters">
+      <input aria-label="Search suppliers" placeholder="Search business or email" value={search} onChange={(event) => { setSearch(event.target.value); state.setPage(1); }} />
+      <select aria-label="Filter suppliers by suspension" value={suspended} onChange={(event) => { setSuspended(event.target.value); state.setPage(1); }}><option value="">All account states</option><option value="false">Not suspended</option><option value="true">Suspended</option></select>
+      <select aria-label="Filter suppliers by verification" value={verificationStatus} onChange={(event) => { setVerificationStatus(event.target.value); state.setPage(1); }}><option value="">All verification states</option>{['PENDING', 'VERIFIED', 'REJECTED'].map((status) => <option key={status}>{status}</option>)}</select>
+    </div>
     {state.error && <ErrorState message={state.error} onRetry={state.reload} />}
-    {state.isLoading ? <LoadingState /> : state.result.data.length === 0 ? <EmptyState title="No suppliers found" /> : <div className="table-scroll"><table><thead><tr><th>Business</th><th>Contact</th><th>Location</th><th>Rating</th><th>Products</th><th>Verification</th><th>Actions</th></tr></thead><tbody>
-      {state.result.data.map((supplier) => <tr key={supplier.id}><td>{supplier.business_name}</td><td>{supplier.first_name} {supplier.last_name}<small className="table-subtext">{supplier.email}</small></td><td>{[supplier.city, supplier.country].filter(Boolean).join(', ')}</td><td>{Number(supplier.rating_average || 0).toFixed(1)} ({supplier.rating_count})</td><td>{supplier.product_count}</td><td><StatusBadge>{supplier.verification_status}</StatusBadge></td><td><select aria-label={`Verification for ${supplier.business_name}`} value={supplier.verification_status} onChange={(event) => setVerification(supplier, event.target.value)}>{['PENDING', 'VERIFIED', 'REJECTED'].map((status) => <option key={status}>{status}</option>)}</select></td></tr>)}
+    {state.isLoading ? <LoadingState /> : state.result.data.length === 0 ? <EmptyState title="No suppliers found" /> : <div className="table-scroll"><table><thead><tr><th>Business</th><th>Contact</th><th>Location</th><th>Rating</th><th>Products</th><th>Verification</th><th>Account</th><th>Actions</th></tr></thead><tbody>
+      {state.result.data.map((supplier) => <tr key={supplier.id}><td>{supplier.business_name}</td><td>{supplier.first_name} {supplier.last_name}<small className="table-subtext">{supplier.email}</small></td><td>{[supplier.city, supplier.country].filter(Boolean).join(', ')}</td><td>{Number(supplier.rating_average || 0).toFixed(1)} ({supplier.rating_count})</td><td>{supplier.product_count}</td><td><select aria-label={`Verification for ${supplier.business_name}`} value={supplier.verification_status} onChange={(event) => setVerification(supplier, event.target.value)}>{['PENDING', 'VERIFIED', 'REJECTED'].map((status) => <option key={status}>{status}</option>)}</select></td><td><StatusBadge>{supplier.is_suspended ? 'SUSPENDED' : supplier.is_active ? 'ACTIVE' : 'INACTIVE'}</StatusBadge>{supplier.is_suspended && <small className="table-subtext">{supplier.suspension_reason}</small>}</td><td><button className={supplier.is_suspended ? 'secondary-button' : 'danger-button'} type="button" onClick={() => { setSuspensionTarget(supplier); setSuspensionReason(''); }}>{supplier.is_suspended ? 'Reinstate' : 'Suspend'}</button></td></tr>)}
     </tbody></table></div>}
     <Pagination page={state.page} totalPages={state.result.totalPages} total={state.result.total || 0} onPageChange={state.setPage} isLoading={state.isLoading} />
+    <ConfirmDialog
+      open={Boolean(suspensionTarget)}
+      title={suspensionTarget?.is_suspended ? 'Reinstate supplier?' : 'Suspend supplier?'}
+      confirmLabel={suspensionTarget?.is_suspended ? 'Reinstate supplier' : 'Suspend supplier'}
+      destructive={!suspensionTarget?.is_suspended}
+      isBusy={saving}
+      isConfirmDisabled={!suspensionTarget?.is_suspended && suspensionReason.trim().length < 5}
+      onCancel={() => setSuspensionTarget(null)}
+      onConfirm={updateSuspension}
+    >
+      <div className="form-stack">
+        <p>{suspensionTarget?.business_name}</p>
+        {!suspensionTarget?.is_suspended && <label>Reason<textarea required minLength={5} maxLength={2000} rows="3" value={suspensionReason} onChange={(event) => setSuspensionReason(event.target.value)} /></label>}
+      </div>
+    </ConfirmDialog>
   </section>;
 }
 
@@ -482,11 +534,11 @@ export function AdminAuditLogsPage() {
   const [search, setSearch] = useState('');
   const loader = useCallback((page) => adminApi.auditLogs({ page, limit: 25, ...(search && { search }) }), [search]);
   const state = usePagedData(loader, [search]);
-  return <section className="page-stack"><PageHeader eyebrow="Administration" title="Audit logs" description="Immutable order transition history, including actor and reason." />
-    <input className="search-control" aria-label="Search audit logs" placeholder="Search order, user, or status" value={search} onChange={(event) => { setSearch(event.target.value); state.setPage(1); }} />
+  return <section className="page-stack"><PageHeader eyebrow="Administration" title="Audit logs" description="Immutable history of administrator actions and order transitions." />
+    <input className="search-control" aria-label="Search audit logs" placeholder="Search action, entity, user, or details" value={search} onChange={(event) => { setSearch(event.target.value); state.setPage(1); }} />
     {state.error && <ErrorState message={state.error} onRetry={state.reload} />}
-    {state.isLoading ? <LoadingState /> : state.result.data.length === 0 ? <EmptyState title="No audit events found" /> : <div className="table-scroll"><table><thead><tr><th>Time</th><th>Order</th><th>Transition</th><th>Actor</th><th>Reason</th></tr></thead><tbody>
-      {state.result.data.map((entry) => <tr key={entry.id}><td>{new Date(entry.created_at).toLocaleString()}</td><td>{entry.order_number}</td><td>{entry.from_status || '—'} → {entry.to_status}</td><td>{entry.actor_email} ({entry.actor_role})</td><td>{entry.reason || '—'}</td></tr>)}
+    {state.isLoading ? <LoadingState /> : state.result.data.length === 0 ? <EmptyState title="No audit events found" /> : <div className="table-scroll"><table><thead><tr><th>Time</th><th>Action</th><th>Entity</th><th>Actor</th><th>Changes / reason</th></tr></thead><tbody>
+      {state.result.data.map((entry) => <tr key={entry.id}><td>{new Date(entry.created_at).toLocaleString()}</td><td>{entry.action.replaceAll('_', ' ')}</td><td>{entry.entity_type.replaceAll('_', ' ')} · {entry.entity_id}</td><td>{entry.actor_email}</td><td><details><summary>View details</summary><pre>{JSON.stringify({ before: entry.before_data, after: entry.after_data, reason: entry.reason }, null, 2)}</pre></details></td></tr>)}
     </tbody></table></div>}
     <Pagination page={state.page} totalPages={state.result.totalPages} total={state.result.total || 0} onPageChange={state.setPage} isLoading={state.isLoading} />
   </section>;

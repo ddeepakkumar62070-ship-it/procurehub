@@ -53,14 +53,14 @@ describe('Phase 12 supplier, dispute, and analytics APIs', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         orderId,
-        category: 'DELIVERY',
+        type: 'ORDER_NOT_RECEIVED',
         title: 'Shipment is delayed',
         description: 'The shipment has not moved for several days.',
       });
     expect(created.status).toBe(201);
     expect(disputeService.create).toHaveBeenCalledWith(supplier, {
       orderId,
-      category: 'DELIVERY',
+      type: 'ORDER_NOT_RECEIVED',
       title: 'Shipment is delayed',
       description: 'The shipment has not moved for several days.',
     });
@@ -75,6 +75,14 @@ describe('Phase 12 supplier, dispute, and analytics APIs', () => {
       status: 'OPEN',
     });
     expect((await request(app).get('/api/disputes')).status).toBe(401);
+  });
+
+  it('blocks suspended supplier accounts from supplier endpoints', async () => {
+    authService.getActiveUser.mockResolvedValue({ ...supplier, supplier_suspended: true });
+    const response = await request(app)
+      .get('/api/quotations')
+      .set('Authorization', `Bearer ${tokenFor()}`);
+    expect(response.status).toBe(403);
   });
 
   it('returns role-specific analytics only to authenticated workspace users', async () => {

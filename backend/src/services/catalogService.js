@@ -222,7 +222,11 @@ function buildProductFilters(filters) {
         JOIN inventory i ON i.supplier_product_id = sp.id
         JOIN users u ON u.id = sp.supplier_user_id
           AND u.is_active = TRUE AND u.deleted_at IS NULL
-        WHERE ${offerConditions.join(' AND ')}
+        WHERE NOT EXISTS (
+          SELECT 1 FROM supplier_profiles suspended_supplier
+          WHERE suspended_supplier.user_id = u.id AND suspended_supplier.is_suspended = TRUE
+        )
+          AND ${offerConditions.join(' AND ')}
       )`
     );
   }
@@ -250,6 +254,11 @@ async function listProducts(filters) {
                 FROM supplier_products sort_offer
                 JOIN users sort_user ON sort_user.id = sort_offer.supplier_user_id
                   AND sort_user.is_active = TRUE AND sort_user.deleted_at IS NULL
+                        AND NOT EXISTS (
+                          SELECT 1 FROM supplier_profiles suspended_supplier
+                          WHERE suspended_supplier.user_id = sort_user.id
+                            AND suspended_supplier.is_suspended = TRUE
+                        )
                 WHERE sort_offer.product_id = p.id
                   AND sort_offer.is_active = TRUE
                   AND sort_offer.currency = $${dataValues.length})${filters.sort === 'price_asc' ? ' ASC' : ' DESC'} NULLS LAST, p.name ASC`;
@@ -281,6 +290,10 @@ async function listProducts(filters) {
          JOIN inventory i ON i.supplier_product_id = sp.id
          JOIN users u ON u.id = sp.supplier_user_id
            AND u.is_active = TRUE AND u.deleted_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM supplier_profiles suspended_supplier
+             WHERE suspended_supplier.user_id = u.id AND suspended_supplier.is_suspended = TRUE
+           )
          WHERE sp.product_id = p.id AND sp.is_active = TRUE
          GROUP BY sp.currency
        ) currency_prices

@@ -34,6 +34,9 @@ function initSocket(server) {
     }
     try {
       const user = await authService.getActiveUser(payload.sub);
+      if (user.supplier_suspended && user.roles.includes('SUPPLIER')) {
+        return next(new Error('Supplier account is suspended'));
+      }
       socket.data.userId = user.id;
       return next();
     } catch (error) {
@@ -52,7 +55,13 @@ function getIo() {
   return io;
 }
 
+function disconnectUser(userId) {
+  if (!io) return;
+  io.in(`user:${userId}`).disconnectSockets(true);
+}
+
 module.exports = {
   initSocket,
   getIo,
+  disconnectUser,
 };

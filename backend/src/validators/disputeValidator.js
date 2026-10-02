@@ -13,7 +13,14 @@ module.exports = {
   idParams: z.object({ id: uuid }),
   create: z.object({
     orderId: uuid,
-    category: z.enum(['DELIVERY', 'QUALITY', 'PAYMENT', 'QUANTITY', 'OTHER']),
+    type: z.enum([
+      'ORDER_NOT_RECEIVED',
+      'DAMAGED_PRODUCT',
+      'WRONG_QUANTITY',
+      'WRONG_PRODUCT',
+      'PAYMENT_ISSUE',
+      'OTHER',
+    ]),
     title: z.string().trim().min(3).max(200),
     description: z.string().trim().min(10).max(5000),
   }).strict(),

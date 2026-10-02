@@ -34,6 +34,11 @@ function requireRole(...allowedRoles) {
     if (!req.user.roles.some((role) => allowedRoles.includes(role))) {
       return next(new ForbiddenError('Your account does not have permission to access this resource'));
     }
+    if (allowedRoles.includes('SUPPLIER')
+      && req.user.roles.includes('SUPPLIER')
+      && req.user.supplier_suspended) {
+      return next(new ForbiddenError('This supplier account is suspended'));
+    }
     return next();
   };
 }

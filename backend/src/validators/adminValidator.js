@@ -13,6 +13,11 @@ const usersQuery = z.object({
   active: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
 }).strict();
 const standardQuery = z.object(pagination).strict();
+const suppliersQuery = z.object({
+  ...pagination,
+  suspended: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  verificationStatus: z.enum(['PENDING', 'VERIFIED', 'REJECTED']).optional(),
+}).strict();
 const orderQuery = z.object({
   ...pagination,
   status: z.enum(ORDER_STATES).optional(),
@@ -29,6 +34,13 @@ const updateUserSchema = z.object({ isActive: z.boolean() }).strict();
 const updateSupplierSchema = z.object({
   verificationStatus: z.enum(['PENDING', 'VERIFIED', 'REJECTED']),
 }).strict();
+const updateSupplierSuspensionSchema = z.object({
+  isSuspended: z.boolean(),
+  reason: z.string().trim().min(5).max(2000).optional(),
+}).strict().refine(
+  (value) => !value.isSuspended || Boolean(value.reason),
+  { message: 'A reason is required when suspending a supplier', path: ['reason'] }
+);
 const updateDisputeSchema = z.object({
   status: z.enum(['UNDER_REVIEW', 'RESOLVED', 'REJECTED']),
   resolution: z.string().trim().min(5).max(4000).optional(),
@@ -41,10 +53,12 @@ module.exports = {
   idParams,
   usersQuery,
   standardQuery,
+  suppliersQuery,
   orderQuery,
   auditQuery,
   disputeQuery,
   updateUserSchema,
   updateSupplierSchema,
+  updateSupplierSuspensionSchema,
   updateDisputeSchema,
 };

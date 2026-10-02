@@ -1,5 +1,22 @@
-const { query } = require('../config/db');
-const { NotFoundError } = require('../utils/errors');
+const { pool, query } = require('../config/db');
+const { ConflictError, NotFoundError, ValidationError } = require('../utils/errors');
+const adminAuditService = require('./adminAuditService');
+const redisData = require('../config/redisData');
+
+async function withTransaction(callback) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await callback(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 async function listUsers(filters) {
   const values = [];
@@ -51,25 +68,51 @@ async function listUsers(filters) {
 
 async function updateUserActive(userId, active, actorUserId) {
   if (userId === actorUserId && !active) {
-    const { ConflictError } = require('../utils/errors');
     throw new ConflictError('You cannot deactivate your own account', 'CANNOT_DEACTIVATE_SELF');
   }
-  const result = await query(
-    `UPDATE users SET is_active = $1, updated_at = NOW()
-     WHERE id = $2 AND deleted_at IS NULL
-     RETURNING id, email, first_name, last_name, is_active`,
-    [active, userId]
-  );
-  if (!result.rows[0]) throw new NotFoundError('User not found');
-  return result.rows[0];
+  const user = await withTransaction(async (client) => {
+    const selected = await client.query(
+      `SELECT id, email, first_name, last_name, is_active
+       FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [userId]
+    );
+    const before = selected.rows[0];
+    if (!before) throw new NotFoundError('User not found');
+    const updated = await client.query(
+      `UPDATE users SET is_active = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, email, first_name, last_name, is_active`,
+      [active, userId]
+    );
+    const after = updated.rows[0];
+    await adminAuditService.record(client, {
+      actorUserId,
+      action: active ? 'USER_ACTIVATED' : 'USER_DEACTIVATED',
+      entityType: 'USER',
+      entityId: userId,
+      before: { isActive: before.is_active },
+      after: { isActive: after.is_active },
+    });
+    return after;
+  });
+  await redisData.invalidateReadCache();
+  return user;
 }
 
 async function listSuppliers(filters) {
   const values = [];
-  const conditions = ['u.is_active = TRUE', 'u.deleted_at IS NULL'];
+  const conditions = ['u.deleted_at IS NULL'];
   if (filters.search) {
     values.push(`%${filters.search}%`);
     conditions.push(`(b.name ILIKE $${values.length} OR u.email ILIKE $${values.length})`);
+  }
+  if (filters.suspended !== undefined) {
+    values.push(filters.suspended);
+    conditions.push(`sp.is_suspended = $${values.length}`);
+  }
+  if (filters.verificationStatus) {
+    values.push(filters.verificationStatus);
+    conditions.push(`sp.verification_status = $${values.length}`);
   }
   const where = conditions.join(' AND ');
   const count = await query(
@@ -81,8 +124,10 @@ async function listSuppliers(filters) {
     values
   );
   const result = await query(
-    `SELECT u.id, u.email, u.first_name, u.last_name, b.name AS business_name,
-            b.city, b.state, b.country, sp.verification_status, sp.rating_average,
+    `    SELECT u.id, u.email, u.first_name, u.last_name, u.is_active,
+           b.name AS business_name, b.city, b.state, b.country,
+           sp.verification_status, sp.is_suspended, sp.suspension_reason,
+           sp.suspended_at, sp.rating_average,
             sp.rating_count, COUNT(DISTINCT supplier_products.id)::INTEGER AS product_count
      FROM supplier_profiles sp
      JOIN users u ON u.id = sp.user_id
@@ -99,16 +144,299 @@ async function listSuppliers(filters) {
   return { data: result.rows, page: filters.page, limit: filters.limit, total, totalPages: Math.ceil(total / filters.limit) };
 }
 
-async function updateSupplierVerification(userId, status) {
+async function updateSupplierVerification(userId, status, actorUserId) {
+  return withTransaction(async (client) => {
+    const selected = await client.query(
+      `SELECT user_id, verification_status, is_suspended
+       FROM supplier_profiles WHERE user_id = $1 FOR UPDATE`,
+      [userId]
+    );
+    const before = selected.rows[0];
+    if (!before) throw new NotFoundError('Supplier not found');
+    const result = await client.query(
+      `UPDATE supplier_profiles SET verification_status = $1, updated_at = NOW()
+       WHERE user_id = $2
+       RETURNING user_id, verification_status, is_suspended`,
+      [status, userId]
+    );
+    const after = result.rows[0];
+    await adminAuditService.record(client, {
+      actorUserId,
+      action: 'SUPPLIER_VERIFICATION_UPDATED',
+      entityType: 'SUPPLIER',
+      entityId: userId,
+      before: { verificationStatus: before.verification_status },
+      after: { verificationStatus: after.verification_status },
+    });
+    return after;
+  });
+}
+
+async function updateSupplierSuspension(userId, isSuspended, reason, actorUserId) {
+  const supplier = await withTransaction(async (client) => {
+    const selected = await client.query(
+      `SELECT user_id, is_suspended, suspension_reason
+       FROM supplier_profiles WHERE user_id = $1 FOR UPDATE`,
+      [userId]
+    );
+    const before = selected.rows[0];
+    if (!before) throw new NotFoundError('Supplier not found');
+    if (isSuspended && !reason) {
+      throw new ValidationError('A reason is required when suspending a supplier');
+    }
+    const result = await client.query(
+      `UPDATE supplier_profiles
+       SET is_suspended = $1,
+           suspension_reason = CASE WHEN $1 THEN $2 ELSE NULL END,
+           suspended_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
+           updated_at = NOW()
+       WHERE user_id = $3
+       RETURNING user_id, is_suspended, suspension_reason, suspended_at`,
+      [isSuspended, reason || null, userId]
+    );
+    const after = result.rows[0];
+    await adminAuditService.record(client, {
+      actorUserId,
+      action: isSuspended ? 'SUPPLIER_SUSPENDED' : 'SUPPLIER_REINSTATED',
+      entityType: 'SUPPLIER',
+      entityId: userId,
+      before: { isSuspended: before.is_suspended, reason: before.suspension_reason },
+      after: { isSuspended: after.is_suspended, reason: after.suspension_reason },
+      reason: reason || null,
+    });
+    return after;
+  });
+  require('../config/socket').disconnectUser(userId);
+  await redisData.invalidateReadCache();
+  return supplier;
+}
+
+async function listCategories() {
   const result = await query(
-    `UPDATE supplier_profiles
-     SET verification_status = $1, updated_at = NOW()
-     WHERE user_id = $2
-     RETURNING user_id, verification_status`,
-    [status, userId]
+    `SELECT c.id, c.parent_category_id, c.name, c.slug, c.description,
+            c.is_active, c.created_at, COUNT(p.id)::INTEGER AS product_count
+     FROM categories c
+     LEFT JOIN products p ON p.category_id = c.id AND p.deleted_at IS NULL
+     GROUP BY c.id
+     ORDER BY c.name`
   );
-  if (!result.rows[0]) throw new NotFoundError('Supplier not found');
-  return result.rows[0];
+  return result.rows;
+}
+
+async function createCategory(input, actorUserId) {
+  try {
+    const category = await withTransaction(async (client) => {
+      const inserted = await client.query(
+        `INSERT INTO categories (parent_category_id, name, slug, description)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, parent_category_id, name, slug, description, is_active`,
+        [input.parentCategoryId || null, input.name, input.slug, input.description || null]
+      );
+      const category = inserted.rows[0];
+      await adminAuditService.record(client, {
+        actorUserId,
+        action: 'CATEGORY_CREATED',
+        entityType: 'CATEGORY',
+        entityId: category.id,
+        after: category,
+      });
+      return category;
+    });
+    await redisData.invalidateReadCache();
+    return category;
+  } catch (error) {
+    if (error.code === '23505') throw new ConflictError('A category with this slug already exists', 'CATALOG_ITEM_ALREADY_EXISTS');
+    if (error.code === '23503') throw new ValidationError('Parent category does not exist');
+    throw error;
+  }
+}
+
+async function updateCategory(id, input, actorUserId) {
+  const fields = {
+    parentCategoryId: 'parent_category_id',
+    name: 'name',
+    slug: 'slug',
+    description: 'description',
+  };
+  const entries = Object.entries(input);
+  if (!entries.length) throw new ValidationError('At least one category field must be provided');
+  const values = entries.map(([, value]) => value ?? null);
+  const assignments = entries.map(([key], index) => `${fields[key]} = $${index + 1}`);
+  values.push(id);
+  try {
+    const category = await withTransaction(async (client) => {
+      const selected = await client.query(
+        `SELECT id, parent_category_id, name, slug, description, is_active
+         FROM categories WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      );
+      const before = selected.rows[0];
+      if (!before) throw new NotFoundError('Category not found');
+      const updated = await client.query(
+        `UPDATE categories SET ${assignments.join(', ')}, updated_at = NOW()
+         WHERE id = $${values.length}
+         RETURNING id, parent_category_id, name, slug, description, is_active`,
+        values
+      );
+      const after = updated.rows[0];
+      await adminAuditService.record(client, {
+        actorUserId,
+        action: 'CATEGORY_UPDATED',
+        entityType: 'CATEGORY',
+        entityId: id,
+        before,
+        after,
+      });
+      return after;
+    });
+    await redisData.invalidateReadCache();
+    return category;
+  } catch (error) {
+    if (error.code === '23505') throw new ConflictError('A category with this slug already exists', 'CATALOG_ITEM_ALREADY_EXISTS');
+    if (error.code === '23503') throw new ValidationError('Parent category does not exist');
+    throw error;
+  }
+}
+
+async function deactivateCategory(id, actorUserId) {
+  const category = await withTransaction(async (client) => {
+    const selected = await client.query(
+      `SELECT id, name, slug, is_active
+       FROM categories WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [id]
+    );
+    const before = selected.rows[0];
+    if (!before) throw new NotFoundError('Category not found');
+    const result = await client.query(
+      `UPDATE categories SET is_active = FALSE, deleted_at = NOW(), updated_at = NOW()
+       WHERE id = $1 RETURNING id, name, slug, is_active`,
+      [id]
+    );
+    await adminAuditService.record(client, {
+      actorUserId,
+      action: 'CATEGORY_DEACTIVATED',
+      entityType: 'CATEGORY',
+      entityId: id,
+      before,
+      after: result.rows[0],
+    });
+    return { id, deactivated: true };
+  });
+  await redisData.invalidateReadCache();
+  return category;
+}
+
+async function createProduct(input, actorUserId) {
+  try {
+    const product = await withTransaction(async (client) => {
+      const result = await client.query(
+        `INSERT INTO products (category_id, name, sku, description)
+         SELECT id, $2, $3, $4
+         FROM categories
+         WHERE id = $1 AND is_active = TRUE AND deleted_at IS NULL
+         RETURNING id, category_id, name, sku, description, is_active`,
+        [input.categoryId, input.name, input.sku, input.description || null]
+      );
+      if (!result.rows[0]) throw new ValidationError('An active category is required');
+      const created = result.rows[0];
+      await adminAuditService.record(client, {
+        actorUserId,
+        action: 'PRODUCT_CREATED',
+        entityType: 'PRODUCT',
+        entityId: created.id,
+        after: created,
+      });
+      return created;
+    });
+    await redisData.invalidateReadCache();
+    return product;
+  } catch (error) {
+    if (error.code === '23505') throw new ConflictError('A product with this SKU already exists', 'CATALOG_ITEM_ALREADY_EXISTS');
+    if (error.code === '23503') throw new ValidationError('A referenced category does not exist');
+    throw error;
+  }
+}
+
+async function updateProduct(id, input, actorUserId) {
+  const fields = {
+    categoryId: 'category_id',
+    name: 'name',
+    sku: 'sku',
+    description: 'description',
+  };
+  const entries = Object.entries(input);
+  if (!entries.length) throw new ValidationError('At least one product field must be provided');
+  const assignments = entries.map(([key], index) => `${fields[key]} = $${index + 1}`);
+  const values = entries.map(([, value]) => value ?? null);
+  values.push(id);
+  try {
+    const product = await withTransaction(async (client) => {
+      const selected = await client.query(
+        `SELECT id, category_id, name, sku, description, is_active
+         FROM products WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      );
+      const before = selected.rows[0];
+      if (!before) throw new NotFoundError('Product not found');
+      if (input.categoryId) {
+        const category = await client.query(
+          `SELECT id FROM categories WHERE id = $1 AND is_active = TRUE AND deleted_at IS NULL`,
+          [input.categoryId]
+        );
+        if (!category.rows[0]) throw new ValidationError('An active category is required');
+      }
+      const updated = await client.query(
+        `UPDATE products SET ${assignments.join(', ')}, updated_at = NOW()
+         WHERE id = $${values.length}
+         RETURNING id, category_id, name, sku, description, is_active`,
+        values
+      );
+      const after = updated.rows[0];
+      await adminAuditService.record(client, {
+        actorUserId,
+        action: 'PRODUCT_UPDATED',
+        entityType: 'PRODUCT',
+        entityId: id,
+        before,
+        after,
+      });
+      return after;
+    });
+    await redisData.invalidateReadCache();
+    return product;
+  } catch (error) {
+    if (error.code === '23505') throw new ConflictError('A product with this SKU already exists', 'CATALOG_ITEM_ALREADY_EXISTS');
+    if (error.code === '23503') throw new ValidationError('A referenced category does not exist');
+    throw error;
+  }
+}
+
+async function deactivateProduct(id, actorUserId) {
+  const product = await withTransaction(async (client) => {
+    const selected = await client.query(
+      `SELECT id, category_id, name, sku, is_active
+       FROM products WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [id]
+    );
+    const before = selected.rows[0];
+    if (!before) throw new NotFoundError('Product not found');
+    const result = await client.query(
+      `UPDATE products SET is_active = FALSE, updated_at = NOW()
+       WHERE id = $1 RETURNING id, category_id, name, sku, is_active`,
+      [id]
+    );
+    await adminAuditService.record(client, {
+      actorUserId,
+      action: 'PRODUCT_DEACTIVATED',
+      entityType: 'PRODUCT',
+      entityId: id,
+      before,
+      after: result.rows[0],
+    });
+    return { id, deactivated: true };
+  });
+  await redisData.invalidateReadCache();
+  return product;
 }
 
 async function listOrders(filters) {
@@ -183,25 +511,39 @@ async function listAuditLogs(filters) {
   const conditions = ['TRUE'];
   if (filters.search) {
     values.push(`%${filters.search}%`);
-    conditions.push(`(po.order_number ILIKE $${values.length} OR u.email ILIKE $${values.length}
-      OR l.from_status ILIKE $${values.length} OR l.to_status ILIKE $${values.length})`);
+    conditions.push(`(actor_email ILIKE $${values.length}
+      OR action ILIKE $${values.length} OR entity_type ILIKE $${values.length}
+      OR entity_id ILIKE $${values.length} OR reason ILIKE $${values.length}
+      OR before_data::TEXT ILIKE $${values.length} OR after_data::TEXT ILIKE $${values.length})`);
   }
   if (filters.status) {
     values.push(filters.status);
-    conditions.push(`l.to_status = $${values.length}`);
+    conditions.push(`after_data->>'status' = $${values.length}`);
   }
-  const from = `FROM purchase_order_audit_logs l
-    JOIN purchase_orders po ON po.id = l.purchase_order_id
-    JOIN users u ON u.id = l.actor_user_id`;
+  const events = `WITH audit_events AS (
+    SELECT l.id::TEXT AS id, l.actor_user_id, u.email AS actor_email,
+           l.action, l.entity_type, l.entity_id::TEXT AS entity_id,
+           l.before_data, l.after_data, l.reason, l.created_at
+    FROM admin_audit_logs l
+    JOIN users u ON u.id = l.actor_user_id
+    UNION ALL
+    SELECT l.id::TEXT, l.actor_user_id, u.email,
+           'ORDER_STATUS_TRANSITION', 'PURCHASE_ORDER', l.purchase_order_id::TEXT,
+           JSONB_BUILD_OBJECT('status', l.from_status),
+           JSONB_BUILD_OBJECT('status', l.to_status),
+           l.reason, l.created_at
+    FROM purchase_order_audit_logs l
+    JOIN users u ON u.id = l.actor_user_id
+  )`;
   const where = conditions.join(' AND ');
-  const count = await query(`SELECT COUNT(*)::INTEGER AS total ${from} WHERE ${where}`, values);
+  const count = await query(`${events} SELECT COUNT(*)::INTEGER AS total FROM audit_events WHERE ${where}`, values);
   const result = await query(
-    `SELECT l.id, l.purchase_order_id AS order_id, po.order_number,
-            l.from_status, l.to_status, l.actor_user_id, u.email AS actor_email,
-            l.actor_role, l.reason, l.created_at
-     ${from}
+    `${events}
+     SELECT id, actor_user_id, actor_email, action, entity_type, entity_id,
+            before_data, after_data, reason, created_at
+     FROM audit_events
      WHERE ${where}
-     ORDER BY l.created_at DESC, l.id DESC
+     ORDER BY created_at DESC, id DESC
      LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
     [...values, filters.limit, (filters.page - 1) * filters.limit]
   );
@@ -214,8 +556,11 @@ async function getDashboard() {
     `SELECT
        (SELECT COUNT(*)::INTEGER FROM users WHERE deleted_at IS NULL) AS users,
        (SELECT COUNT(*)::INTEGER FROM supplier_profiles) AS suppliers,
+       (SELECT COUNT(*)::INTEGER FROM supplier_profiles WHERE is_suspended = TRUE) AS suspended_suppliers,
+       (SELECT COUNT(*)::INTEGER FROM categories WHERE is_active = TRUE AND deleted_at IS NULL) AS active_categories,
        (SELECT COUNT(*)::INTEGER FROM purchase_requests WHERE status IN ('OPEN', 'QUOTATION_RECEIVED')) AS open_requests,
        (SELECT COUNT(*)::INTEGER FROM purchase_orders WHERE status NOT IN ('COMPLETED', 'CANCELLED', 'REJECTED', 'REFUNDED')) AS active_orders,
+       (SELECT COUNT(*)::INTEGER FROM order_disputes WHERE status IN ('OPEN', 'UNDER_REVIEW')) AS open_disputes,
        (SELECT COUNT(*)::INTEGER FROM invoices WHERE status IN ('UNPAID', 'PARTIALLY_PAID', 'OVERDUE')) AS outstanding_invoices,
        (SELECT COALESCE(SUM(total), 0)::NUMERIC(14,2) FROM invoices WHERE status = 'PAID') AS paid_total`
   );
@@ -227,6 +572,14 @@ module.exports = {
   updateUserActive,
   listSuppliers,
   updateSupplierVerification,
+  updateSupplierSuspension,
+  listCategories,
+  createCategory,
+  updateCategory,
+  deactivateCategory,
+  createProduct,
+  updateProduct,
+  deactivateProduct,
   listOrders,
   getOrder,
   listAuditLogs,

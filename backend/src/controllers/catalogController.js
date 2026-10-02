@@ -1,4 +1,5 @@
 const catalogService = require('../services/catalogService');
+const adminService = require('../services/adminService');
 const { successResponse } = require('../utils/response');
 
 async function listCategories(req, res) {
@@ -6,18 +7,18 @@ async function listCategories(req, res) {
 }
 
 async function createCategory(req, res) {
-  return res.status(201).json(successResponse(await catalogService.createCategory(req.body)));
+  return res.status(201).json(successResponse(await adminService.createCategory(req.body, req.user.id)));
 }
 
 async function updateCategory(req, res) {
   return res.status(200).json(successResponse(
-    await catalogService.updateCategory(req.validatedParams.id, req.body)
+    await adminService.updateCategory(req.validatedParams.id, req.body, req.user.id)
   ));
 }
 
 async function deactivateCategory(req, res) {
   return res.status(200).json(successResponse(
-    await catalogService.deactivateCategory(req.validatedParams.id)
+    await adminService.deactivateCategory(req.validatedParams.id, req.user.id)
   ));
 }
 
@@ -40,18 +41,18 @@ async function getProduct(req, res) {
 }
 
 async function createProduct(req, res) {
-  return res.status(201).json(successResponse(await catalogService.createProduct(req.body)));
+  return res.status(201).json(successResponse(await adminService.createProduct(req.body, req.user.id)));
 }
 
 async function updateProduct(req, res) {
   return res.status(200).json(successResponse(
-    await catalogService.updateProduct(req.validatedParams.id, req.body)
+    await adminService.updateProduct(req.validatedParams.id, req.body, req.user.id)
   ));
 }
 
 async function deactivateProduct(req, res) {
   return res.status(200).json(successResponse(
-    await catalogService.deactivateProduct(req.validatedParams.id)
+    await adminService.deactivateProduct(req.validatedParams.id, req.user.id)
   ));
 }
 

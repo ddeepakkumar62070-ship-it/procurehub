@@ -9,10 +9,10 @@ export const catalogApi = {
     return responseData(await api.get('/catalog/categories'));
   },
   async createCategory(input) {
-    return responseData(await api.post('/catalog/categories', input));
+    return responseData(await api.post('/admin/categories', input));
   },
   async createProduct(input) {
-    return responseData(await api.post('/catalog/products', input));
+    return responseData(await api.post('/admin/products', input));
   },
   async getProducts(params) {
     const response = await api.get('/catalog/products', { params });

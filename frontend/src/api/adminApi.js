@@ -16,6 +16,27 @@ export const adminApi = {
   async updateSupplier(id, verificationStatus) {
     return (await api.patch(`/admin/suppliers/${id}`, { verificationStatus })).data.data;
   },
+  async updateSupplierSuspension(id, isSuspended, reason) {
+    return (await api.patch(`/admin/suppliers/${id}/suspension`, {
+      isSuspended,
+      ...(reason && { reason }),
+    })).data.data;
+  },
+  async categories() {
+    return (await api.get('/admin/categories')).data.data;
+  },
+  async createCategory(input) {
+    return (await api.post('/admin/categories', input)).data.data;
+  },
+  async updateCategory(id, input) {
+    return (await api.patch(`/admin/categories/${id}`, input)).data.data;
+  },
+  async deactivateCategory(id) {
+    return (await api.delete(`/admin/categories/${id}`)).data.data;
+  },
+  async createProduct(input) {
+    return (await api.post('/admin/products', input)).data.data;
+  },
   async orders(params = {}) {
     return (await api.get('/admin/orders', { params })).data;
   },
