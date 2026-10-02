@@ -3,11 +3,15 @@ const env = require('./env');
 const logger = require('./logger');
 
 const pool = new Pool({
-  host: env.dbHost,
-  port: env.dbPort,
-  database: env.dbName,
-  user: env.dbUser,
-  password: env.dbPassword,
+  ...(process.env.NODE_ENV === 'test' && process.env.TEST_DATABASE_URL
+    ? { connectionString: process.env.TEST_DATABASE_URL }
+    : {
+      host: env.dbHost,
+      port: env.dbPort,
+      database: env.dbName,
+      user: env.dbUser,
+      password: env.dbPassword,
+    }),
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,

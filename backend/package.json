@@ -7,7 +7,9 @@
     "start": "node src/server.js",
     "db:migrate": "node scripts/migrate.js",
     "admin:create": "node scripts/createAdmin.js",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "test:coverage": "jest --runInBand --coverage --collectCoverageFrom='src/**/*.js' --coveragePathIgnorePatterns='/src/server.js'",
+    "test:integration": "node scripts/setupTestDatabase.js && jest --runInBand --runTestsByPath tests/authorization.integration.test.js tests/auth.integration.test.js tests/payments.integration.test.js tests/idempotency.integration.test.js tests/inventoryReservation.integration.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

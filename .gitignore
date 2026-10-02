@@ -5,6 +5,7 @@ node_modules/
 
 dist/
 build/
+backend/coverage/
 
 *.log
 npm-debug.log*
@@ -14,4 +15,3 @@ pnpm-debug.log*
 dump.rdb
 
 .DS_Store
-
