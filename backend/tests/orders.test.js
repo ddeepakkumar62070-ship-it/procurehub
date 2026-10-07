@@ -90,6 +90,28 @@ describe('Purchase order routes', () => {
     );
   });
 
+  it('accepts the frontend supplier RETURNED transition request at the order API endpoint', async () => {
+    authService.getActiveUser.mockResolvedValue(supplier);
+    orderTransitionService.transitionPurchaseOrder.mockResolvedValue({
+      id: orderId,
+      status: 'RETURNED',
+    });
+
+    const response = await request(app)
+      .post(`/api/orders/${orderId}/transitions`)
+      .set('Authorization', `Bearer ${tokenFor(supplier)}`)
+      .send({ status: 'RETURNED', reason: 'Return received' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.status).toBe('RETURNED');
+    expect(orderTransitionService.transitionPurchaseOrder).toHaveBeenCalledWith(
+      orderId,
+      supplier,
+      { status: 'RETURNED', reason: 'Return received' }
+    );
+  });
+
   it('rejects arbitrary status updates and unsupported payload fields', async () => {
     authService.getActiveUser.mockResolvedValue(buyer);
 

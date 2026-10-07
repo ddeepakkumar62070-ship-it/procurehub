@@ -3,16 +3,19 @@ const { ConflictError, ForbiddenError, NotFoundError } = require('../utils/error
 const OrderStateMachine = require('./orderStateMachine');
 const inventoryReservationService = require('./inventoryReservationService');
 const invoiceService = require('./invoiceService');
-const jobOutboxService = require('./jobOutboxService');
-const { QUEUE_NAMES } = require('../queues/queueRegistry');
 const env = require('../config/env');
-const redisData = require('../config/redisData');
 const notificationService = require('./notificationService');
 
 const ORDER_NOTIFICATION_TYPES = {
   CONFIRMED: 'ORDER_CONFIRMED',
   SHIPPED: 'ORDER_SHIPPED',
   DELIVERED: 'ORDER_DELIVERED',
+};
+
+const ORDER_NOTIFICATION_RECIPIENT = {
+  CONFIRMED: 'buyer_user_id',
+  SHIPPED: 'buyer_user_id',
+  DELIVERED: 'buyer_user_id',
 };
 
 async function withTransaction(callback) {
@@ -173,10 +176,13 @@ async function getOrderAudit(orderId, client = { query }) {
 
 async function getOrderHeader(orderId, actor, client = { query, transaction: false }) {
   const result = await client.query(
-    `SELECT po.*, pr.request_number, pr.title AS request_title,
+    `SELECT po.*, i.id AS invoice_id, i.status AS payment_status,
+            i.amount_paid AS payment_amount_paid, i.total AS payment_total,
+            pr.request_number, pr.title AS request_title,
             buyer_business.name AS buyer_business_name,
             supplier_business.name AS supplier_business_name
      FROM purchase_orders po
+     LEFT JOIN invoices i ON i.order_id = po.id
      JOIN purchase_requests pr ON pr.id = po.purchase_request_id
      JOIN buyer_profiles bp ON bp.user_id = po.buyer_user_id
      JOIN businesses buyer_business ON buyer_business.id = bp.business_id
@@ -204,7 +210,17 @@ async function getPurchaseOrder(orderId, actor) {
     items,
     audit,
     allowed_transitions: OrderStateMachine.availableTransitions(order.status)
-      .filter((status) => OrderStateMachine.TRANSITION_ROLES[status]?.includes(actorRole)),
+      .filter((status) => status !== 'PAID'
+        && OrderStateMachine.TRANSITION_ROLES[status]?.includes(actorRole)),
+    payment: order.invoice_id ? {
+      invoice_id: order.invoice_id,
+      status: order.payment_status,
+      amount_paid: order.payment_amount_paid,
+      total: order.payment_total,
+      can_pay: actorRole === 'BUYER'
+        && order.status === 'PAYMENT_PENDING'
+        && ['UNPAID', 'PARTIALLY_PAID', 'OVERDUE'].includes(order.payment_status),
+    } : null,
   };
 }
 
@@ -248,7 +264,6 @@ async function listPurchaseOrders(actor, filters) {
 }
 
 async function transitionPurchaseOrder(orderId, actor, input) {
-  let invoiceId = null;
   const updatedOrder = await withTransaction(async (client) => {
     const { order, actorRole } = await getOrderHeader(
       orderId,
@@ -264,20 +279,18 @@ async function transitionPurchaseOrder(orderId, actor, input) {
       await inventoryReservationService.consumeForOrder(client, orderId);
     } else if (['CANCELLED', 'REJECTED'].includes(input.status)) {
       await inventoryReservationService.releaseForOrder(client, orderId);
+    } else if (input.status === 'RETURNED') {
+      await inventoryReservationService.restoreReturnedInventory(client, orderId);
     }
 
     if (input.status === 'INVOICE_GENERATED') {
-      const invoice = await invoiceService.createForOrder(client, orderId);
-      invoiceId = invoice.id;
+      await invoiceService.createForOrder(client, orderId);
     }
     if (input.status === 'PAID') {
-      const invoice = await client.query(
-        `SELECT status FROM invoices WHERE order_id = $1 FOR UPDATE`,
-        [orderId]
+      throw new ConflictError(
+        'Use the invoice payment endpoint to record payment',
+        'ORDER_PAYMENT_REQUIRES_INVOICE'
       );
-      if (invoice.rows[0]?.status !== 'PAID') {
-        throw new ConflictError('The order invoice must be fully paid before this transition');
-      }
     }
     if (input.status === 'REFUNDED') {
       await client.query(
@@ -320,37 +333,20 @@ async function transitionPurchaseOrder(orderId, actor, input) {
       [orderId, input.status]
     );
     if (env.nodeEnv !== 'test') {
-      await jobOutboxService.addOrderStatusNotifications(client, orderId, input.status);
       const notificationType = ORDER_NOTIFICATION_TYPES[input.status];
       if (notificationType) {
-        await notificationService.createManyInTransaction(client, [
-          order.buyer_user_id,
-          order.supplier_user_id,
-        ].map((userId) => ({
-          userId,
+        await notificationService.createInTransaction(client, {
+          userId: order[ORDER_NOTIFICATION_RECIPIENT[input.status]],
           type: notificationType,
           title: `Order ${input.status.toLowerCase().replaceAll('_', ' ')}`,
           message: `Purchase order ${order.order_number} is now ${input.status}.`,
           data: { orderId },
           dedupeKey: `order:${orderId}:${notificationType}`,
-        })));
-      }
-      if (invoiceId) {
-        await jobOutboxService.addJob(client, {
-          queueName: QUEUE_NAMES.invoiceGeneration,
-          jobName: 'generate-invoice-pdf',
-          jobId: `invoice-pdf-${invoiceId}`,
-          payload: { invoiceId },
         });
       }
     }
     return updated.rows[0];
   });
-  if (env.nodeEnv !== 'test') {
-    if (['CONFIRMED', 'SHIPPED', 'CANCELLED', 'REJECTED'].includes(input.status)) {
-      await redisData.invalidateReadCache();
-    }
-  }
   return updatedOrder;
 }
 

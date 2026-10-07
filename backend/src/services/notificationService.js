@@ -1,7 +1,4 @@
 const { pool, query } = require('../config/db');
-const jobOutboxService = require('./jobOutboxService');
-const { NotFoundError } = require('../utils/errors');
-const { QUEUE_NAMES } = require('../queues/queueRegistry');
 
 const NOTIFICATION_TYPES = [
   'NEW_PURCHASE_REQUEST',
@@ -35,14 +32,7 @@ async function createInTransaction(client, {
     [userId, type, title, message, JSON.stringify(data), dedupeKey || null]
   );
   if (!result.rows[0]) return null;
-  const notification = result.rows[0];
-  await jobOutboxService.addJob(client, {
-    queueName: QUEUE_NAMES.notificationDelivery,
-    jobName: 'deliver-notification',
-    jobId: `notification-${notification.id}`,
-    payload: { notificationId: notification.id },
-  });
-  return notification;
+  return result.rows[0];
 }
 
 async function createManyInTransaction(client, input) {
@@ -52,21 +42,6 @@ async function createManyInTransaction(client, input) {
     if (result) created.push(result);
   }
   return created;
-}
-
-async function deliver(notificationId) {
-  const result = await query(
-    `SELECT id, user_id, type, title, message, data, read_at, created_at
-     FROM notifications WHERE id = $1`,
-    [notificationId]
-  );
-  const notification = result.rows[0];
-  if (!notification) throw new NotFoundError('Notification not found');
-  const { getIo } = require('../config/socket');
-  const io = getIo();
-  if (!io) throw new Error('Socket.IO has not been initialized');
-  io.to(`user:${notification.user_id}`).emit('notification:new', notification);
-  return notification;
 }
 
 async function listForUser(userId, { page, limit, unreadOnly }) {
@@ -134,7 +109,6 @@ module.exports = {
   NOTIFICATION_TYPES,
   createInTransaction,
   createManyInTransaction,
-  deliver,
   listForUser,
   markRead,
   markAllRead,

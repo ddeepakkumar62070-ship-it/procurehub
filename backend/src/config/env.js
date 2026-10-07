@@ -9,9 +9,6 @@ const env = {
   dbName: process.env.DB_NAME || 'procurehub',
   dbUser: process.env.DB_USER || 'postgres',
   dbPassword: process.env.DB_PASSWORD || 'postgres',
-  redisHost: process.env.REDIS_HOST || 'localhost',
-  redisPort: Number(process.env.REDIS_PORT || 6379),
-  cacheTtlSeconds: Number(process.env.CACHE_TTL_SECONDS || 60),
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 120),
   rateLimitWindowSeconds: Number(process.env.RATE_LIMIT_WINDOW_SECONDS || 60),
   corsOrigins: (process.env.CORS_ORIGIN || 'http://localhost:5173')
@@ -29,9 +26,6 @@ const env = {
 
 if (!Number.isFinite(env.orderReservationTtlHours) || env.orderReservationTtlHours <= 0) {
   throw new Error('ORDER_RESERVATION_TTL_HOURS must be a positive number');
-}
-if (!Number.isFinite(env.cacheTtlSeconds) || env.cacheTtlSeconds <= 0) {
-  throw new Error('CACHE_TTL_SECONDS must be a positive number');
 }
 if (!Number.isInteger(env.rateLimitMax) || env.rateLimitMax <= 0
   || !Number.isInteger(env.rateLimitWindowSeconds) || env.rateLimitWindowSeconds <= 0) {

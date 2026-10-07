@@ -1,15 +1,10 @@
 import { useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
 import { notificationApi } from '../api/notificationApi';
-import { authApi } from '../api/authApi';
 import { useAuthStore } from '../store/authStore';
-
-const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 function NotificationCenter() {
   const user = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);
-  const setSession = useAuthStore((state) => state.setSession);
   const [notifications, setNotifications] = useState([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
@@ -22,11 +17,6 @@ function NotificationCenter() {
     }
 
     let active = true;
-    let refreshing = false;
-    const socket = io(socketUrl, {
-      auth: { token: accessToken },
-      withCredentials: true,
-    });
     notificationApi.list().then((result) => {
       if (active) {
         setNotifications((current) => {
@@ -41,36 +31,11 @@ function NotificationCenter() {
     }).catch((loadError) => {
       if (active) setError(loadError.response?.data?.error?.message || 'Could not load notifications');
     });
-    socket.on('notification:new', (notification) => {
-      setNotifications((current) => [
-        notification,
-        ...current.filter((item) => item.id !== notification.id),
-      ].slice(0, 30));
-    });
-    socket.on('connect_error', async (error) => {
-      if (!active || refreshing || !/expired|invalid/i.test(error.message)) return;
-      refreshing = true;
-      try {
-        const session = await authApi.refresh();
-        if (!active) return;
-        setSession(session);
-        socket.auth = { token: session.accessToken };
-        socket.connect();
-      } catch (refreshError) {
-        if (active) {
-          setError(refreshError.response?.data?.error?.message || 'Your session has expired');
-          useAuthStore.getState().clearSession();
-        }
-      } finally {
-        refreshing = false;
-      }
-    });
 
     return () => {
       active = false;
-      socket.disconnect();
     };
-  }, [user?.id, accessToken, setSession]);
+  }, [user?.id, accessToken]);
 
   if (!user) return null;
 

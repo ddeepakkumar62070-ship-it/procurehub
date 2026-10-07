@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { orderApi } from '../api/orderApi';
+import { invoiceApi } from '../api/invoiceApi';
 
 function PurchaseOrderDetailPage({ supplierView = false }) {
   const { id } = useParams();
@@ -48,6 +49,20 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
     }
   }
 
+  async function handlePayment() {
+    if (!order?.payment?.can_pay) return;
+    setError('');
+    setIsSaving(true);
+    try {
+      await invoiceApi.pay(order.payment.invoice_id);
+      setOrder(await orderApi.get(id));
+    } catch (requestError) {
+      setError(requestError.response?.data?.error?.message || 'Could not record payment');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -69,6 +84,10 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
               {' · Expected delivery '}
               {new Date(`${order.expected_delivery_date.slice(0, 10)}T00:00:00`).toLocaleDateString()}
             </p>
+            {order.payment && <p>
+              Payment: <strong>{order.payment.status.replaceAll('_', ' ')}</strong>
+              {' · '}{order.currency} {order.payment.amount_paid} / {order.payment.total}
+            </p>}
             <section className="request-detail-section">
               <h2>Items</h2>
               <div className="request-items-table">
@@ -116,6 +135,12 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
                 </section>
               )}
             </div>
+            {order.payment?.can_pay && <section className="request-detail-section">
+              <h2>Payment</h2>
+              <button className="primary-button" type="button" disabled={isSaving} onClick={handlePayment}>
+                {isSaving ? 'Processing…' : 'Pay invoice'}
+              </button>
+            </section>}
             <section className="request-detail-section">
               <h2>Order history</h2>
               <ol className="order-audit-list">

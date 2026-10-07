@@ -2,9 +2,6 @@ const PDFDocument = require('pdfkit');
 const { pool, query } = require('../config/db');
 const { ConflictError, ForbiddenError, NotFoundError, ValidationError } = require('../utils/errors');
 const simulatedPaymentProvider = require('./paymentProviders/simulatedPaymentProvider');
-const redisData = require('../config/redisData');
-const logger = require('../config/logger');
-const jobOutboxService = require('./jobOutboxService');
 const env = require('../config/env');
 const notificationService = require('./notificationService');
 
@@ -197,6 +194,12 @@ async function payInvoice(invoiceId, buyer, amount) {
     );
     const invoice = result.rows[0];
     invoice.order_status = orderResult.rows[0].order_status;
+    if (invoice.order_status !== 'PAYMENT_PENDING') {
+      throw new ConflictError(
+        'An invoice can be paid only when its purchase order is PAYMENT_PENDING',
+        'ORDER_NOT_READY_FOR_PAYMENT'
+      );
+    }
     if (['PAID', 'REFUNDED'].includes(invoice.status)) {
       throw new ConflictError('This invoice cannot accept another payment', 'INVOICE_NOT_PAYABLE');
     }
@@ -267,16 +270,8 @@ async function payInvoice(invoiceId, buyer, amount) {
           [invoice.order_id]
         );
       }
-      if (env.nodeEnv !== 'test') {
-        await jobOutboxService.addInvoiceStatusNotifications(client, invoiceId, nextStatus);
-      }
     }
     await client.query('COMMIT');
-    try {
-      await redisData.deleteTemporaryData('invoice-pdf', invoiceId);
-    } catch (error) {
-      logger.warn('Unable to invalidate cached invoice PDF', { invoiceId, error: error.message });
-    }
     return {
       invoiceId,
       status: nextStatus,
@@ -407,17 +402,7 @@ function invoicePdf(invoice) {
 
 async function getInvoicePdf(invoiceId, user) {
   const invoice = await fetchInvoice(invoiceId, user);
-  const cached = await redisData.getTemporaryData('invoice-pdf', invoiceId);
-  if (cached) return Buffer.from(cached, 'base64');
-  const pdf = await invoicePdf(invoice);
-  await redisData.setTemporaryData('invoice-pdf', invoiceId, pdf.toString('base64'), 12 * 60 * 60);
-  return pdf;
-}
-
-async function generateInvoicePdf(invoiceId) {
-  const result = await query('SELECT buyer_id FROM invoices WHERE id = $1', [invoiceId]);
-  if (!result.rows[0]) throw new NotFoundError('Invoice not found');
-  return getInvoicePdf(invoiceId, { id: result.rows[0].buyer_id, roles: ['BUYER'] });
+  return invoicePdf(invoice);
 }
 
 module.exports = {
@@ -425,7 +410,6 @@ module.exports = {
   listInvoices,
   getInvoice: fetchInvoice,
   getInvoicePdf,
-  generateInvoicePdf,
   payInvoice,
   invoicePdf,
 };

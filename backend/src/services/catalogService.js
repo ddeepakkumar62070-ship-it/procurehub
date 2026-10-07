@@ -1,19 +1,33 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, NotFoundError, ValidationError } = require('../utils/errors');
 const env = require('../config/env');
-const redisData = require('../config/redisData');
+const notificationService = require('./notificationService');
 
-async function cacheReadThrough(key, load) {
-  const version = await redisData.getCacheVersion();
-  if (version !== null) {
-    const cacheKey = `procurehub:cache:${version}:${key}`;
-    const cached = await redisData.getCachedJson(cacheKey);
-    if (cached !== null) return cached;
-    const value = await load();
-    await redisData.setCachedJson(cacheKey, value, env.cacheTtlSeconds);
-    return value;
-  }
-  return load();
+async function notifyLowStockInventory(supplierUserId, inventoryRows) {
+  if (env.nodeEnv === 'test') return;
+  const day = new Date().toISOString().slice(0, 10);
+  const lowStockItems = inventoryRows.filter(
+    (item) => item.available_quantity <= item.reorder_level
+  );
+  if (!lowStockItems.length) return;
+
+  await notificationService.withTransaction((client) => (
+    notificationService.createManyInTransaction(
+      client,
+      lowStockItems.map((item) => ({
+        userId: supplierUserId,
+        type: 'LOW_STOCK',
+        title: 'Low stock alert',
+        message: `${item.product_name} is at or below its reorder level.`,
+        data: {
+          productName: item.product_name,
+          availableQuantity: item.available_quantity,
+          reorderLevel: item.reorder_level,
+        },
+        dedupeKey: `low-stock:${item.id}:${day}`,
+      }))
+    )
+  ));
 }
 
 async function withTransaction(callback) {
@@ -42,15 +56,13 @@ function handleUniqueViolation(error, message) {
 }
 
 async function listCategories() {
-  return cacheReadThrough('catalog:categories', async () => {
-    const result = await query(
-      `SELECT id, parent_category_id, name, slug, description
-       FROM categories
-       WHERE is_active = TRUE AND deleted_at IS NULL
-       ORDER BY name`
-    );
-    return result.rows;
-  });
+  const result = await query(
+    `SELECT id, parent_category_id, name, slug, description
+     FROM categories
+     WHERE is_active = TRUE AND deleted_at IS NULL
+     ORDER BY name`
+  );
+  return result.rows;
 }
 
 async function createCategory(input) {
@@ -61,7 +73,6 @@ async function createCategory(input) {
        RETURNING id, parent_category_id, name, slug, description`,
       [input.parentCategoryId || null, input.name, input.slug, input.description || null]
     );
-    await redisData.invalidateReadCache();
     return result.rows[0];
   } catch (error) {
     handleUniqueViolation(error, 'A category with this slug already exists');
@@ -91,7 +102,6 @@ async function updateCategory(id, input) {
       values
     );
     if (!result.rows[0]) throw new NotFoundError('Category not found');
-    await redisData.invalidateReadCache();
     return result.rows[0];
   } catch (error) {
     handleUniqueViolation(error, 'A category with this slug already exists');
@@ -107,7 +117,6 @@ async function deactivateCategory(id) {
     [id]
   );
   if (!result.rows[0]) throw new NotFoundError('Category not found');
-  await redisData.invalidateReadCache();
   return { id: result.rows[0].id, deactivated: true };
 }
 
@@ -122,7 +131,6 @@ async function createProduct(input) {
       [input.categoryId, input.name, input.sku, input.description || null]
     );
     if (!result.rows[0]) throw new ValidationError('An active category is required');
-    await redisData.invalidateReadCache();
     return result.rows[0];
   } catch (error) {
     handleUniqueViolation(error, 'A product with this SKU already exists');
@@ -160,7 +168,6 @@ async function updateProduct(id, input) {
       values
     );
     if (!result.rows[0]) throw new NotFoundError('Product not found or category is inactive');
-    await redisData.invalidateReadCache();
     return result.rows[0];
   } catch (error) {
     handleUniqueViolation(error, 'A product with this SKU already exists');
@@ -175,7 +182,6 @@ async function deactivateProduct(id) {
     [id]
   );
   if (!result.rows[0]) throw new NotFoundError('Product not found');
-  await redisData.invalidateReadCache();
   return { id: result.rows[0].id, deactivated: true };
 }
 
@@ -234,7 +240,6 @@ function buildProductFilters(filters) {
 }
 
 async function listProducts(filters) {
-  return cacheReadThrough(`catalog:products:${JSON.stringify(filters)}`, async () => {
   const { values, where } = buildProductFilters(filters);
   const countResult = await query(
     `SELECT COUNT(*)::INTEGER AS total
@@ -307,11 +312,9 @@ async function listProducts(filters) {
     total,
     totalPages: Math.ceil(total / filters.limit),
   };
-  });
 }
 
 async function getProduct(id) {
-  return cacheReadThrough(`catalog:product:${id}`, async () => {
   const result = await query(
     `SELECT p.id, p.category_id, c.name AS category_name, c.slug AS category_slug,
             p.name, p.sku, p.description, p.created_at
@@ -341,7 +344,6 @@ async function getProduct(id) {
     [id]
   );
   return { ...product, supplierProducts: offers.rows };
-  });
 }
 
 async function createSupplierProduct(supplierUserId, input) {
@@ -375,7 +377,6 @@ async function createSupplierProduct(supplierUserId, input) {
         reorder_level: input.reorderLevel,
       };
     });
-    await redisData.invalidateReadCache();
     return offer;
   } catch (error) {
     handleUniqueViolation(error, 'This supplier already lists the product');
@@ -395,6 +396,7 @@ async function listSupplierProducts(supplierUserId) {
      ORDER BY p.name`,
     [supplierUserId]
   );
+  await notifyLowStockInventory(supplierUserId, result.rows);
   return result.rows;
 }
 
@@ -420,7 +422,6 @@ async function updateSupplierProduct(supplierUserId, id, input) {
     values
   );
   if (!result.rows[0]) throw new NotFoundError('Supplier product not found');
-  await redisData.invalidateReadCache();
   return result.rows[0];
 }
 
@@ -441,6 +442,7 @@ async function listInventory(supplierUserId, lowStockOnly = false) {
      ORDER BY (i.available_quantity <= i.reorder_level) DESC, p.name`,
     [supplierUserId]
   );
+  await notifyLowStockInventory(supplierUserId, result.rows);
   return result.rows;
 }
 
@@ -478,7 +480,6 @@ async function updateInventory(supplierUserId, supplierProductId, input) {
     );
     return updated.rows[0];
   });
-  await redisData.invalidateReadCache();
   return updatedInventory;
 }
 

@@ -2,22 +2,14 @@ jest.mock('../src/config/db', () => ({
   pool: { connect: jest.fn() },
   query: jest.fn(),
 }));
-jest.mock('../src/services/jobOutboxService', () => ({
-  addJob: jest.fn().mockResolvedValue(undefined),
-}));
-jest.mock('../src/config/socket', () => ({
-  getIo: jest.fn(),
-}));
 
-const { pool, query } = require('../src/config/db');
-const jobOutboxService = require('../src/services/jobOutboxService');
-const { getIo } = require('../src/config/socket');
+const { query } = require('../src/config/db');
 const notificationService = require('../src/services/notificationService');
 
 describe('NotificationService', () => {
   afterEach(() => jest.clearAllMocks());
 
-  it('persists typed notifications and schedules socket delivery in the same transaction', async () => {
+  it('persists typed notifications for retrieval through the REST API', async () => {
     const client = { query: jest.fn() };
     const notification = {
       id: 'notification-id',
@@ -39,24 +31,7 @@ describe('NotificationService', () => {
       expect.stringContaining('INSERT INTO notifications'),
       expect.arrayContaining(['user-id', 'NEW_PURCHASE_REQUEST'])
     );
-    expect(jobOutboxService.addJob).toHaveBeenCalledWith(client, expect.objectContaining({
-      queueName: 'notification-delivery',
-      jobName: 'deliver-notification',
-      payload: { notificationId: notification.id },
-    }));
     expect(notificationService.NOTIFICATION_TYPES).toHaveLength(10);
-  });
-
-  it('delivers persisted notifications only to their authenticated user room', async () => {
-    const notification = { id: 'notification-id', user_id: 'user-id', type: 'LOW_STOCK' };
-    query.mockResolvedValueOnce({ rows: [notification] });
-    const room = { emit: jest.fn() };
-    getIo.mockReturnValue({ to: jest.fn().mockReturnValue(room) });
-
-    await expect(notificationService.deliver(notification.id)).resolves.toEqual(notification);
-
-    expect(getIo().to).toHaveBeenCalledWith('user:user-id');
-    expect(room.emit).toHaveBeenCalledWith('notification:new', notification);
   });
 
   it('marks a notification read only when it belongs to the requesting user', async () => {
@@ -68,5 +43,23 @@ describe('NotificationService', () => {
       expect.stringContaining('WHERE id = $1 AND user_id = $2'),
       [notification.id, 'user-id']
     );
+  });
+
+  it('always scopes notification listing to the authenticated user', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ total: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'buyer-notification' }] });
+
+    const result = await notificationService.listForUser('buyer-id', {
+      page: 1,
+      limit: 20,
+      unreadOnly: false,
+    });
+
+    expect(result.data).toEqual([{ id: 'buyer-notification' }]);
+    expect(query.mock.calls[0][0]).toContain('WHERE user_id = $1');
+    expect(query.mock.calls[0][1]).toEqual(['buyer-id']);
+    expect(query.mock.calls[1][0]).toContain('WHERE user_id = $1');
+    expect(query.mock.calls[1][1]).toEqual(['buyer-id', 20, 0]);
   });
 });

@@ -2,7 +2,7 @@
 
 ## Test layers
 
-- **Unit tests** isolate a function or service with database, Redis, queue, and payment-provider boundaries mocked. Use them for state-machine transitions, business rules, validators, error paths, arithmetic, and utility functions. They are fast and make edge cases inexpensive to enumerate.
+- **Unit tests** isolate a function or service with database and payment-provider boundaries mocked. Use them for state-machine transitions, business rules, validators, error paths, arithmetic, and utility functions. They are fast and make edge cases inexpensive to enumerate.
 - **HTTP/API integration tests** exercise Express routes through Supertest while mocking persistence. They verify middleware composition, authentication/roles, input validation, endpoint responses, and that ownership identifiers are passed to services. Existing suites such as `auth.test.js`, `catalog.test.js`, `purchaseRequests.test.js`, `quotations.test.js`, `orders.test.js`, `invoices.test.js`, and `phase12Admin.test.js` cover these seams.
 - **PostgreSQL integration tests** execute services against PostgreSQL with the real migrations and multiple connections. Reserve these for constraints, transaction boundaries, query ownership filters, token persistence, expiry, idempotency, and concurrency behavior that mocks cannot prove.
 

@@ -3,11 +3,12 @@ const controller = require('../controllers/quotationController');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { validateBody } = require('../middleware/validateMiddleware');
 const { validateParams, validateQuery } = require('../middleware/validateQueryMiddleware');
+const expireReservations = require('../middleware/expireReservationsMiddleware');
 const schemas = require('../validators/quotationValidator');
 
 const router = express.Router();
 
-router.use(requireAuth);
+router.use(requireAuth, expireReservations);
 router.get(
   '/',
   requireRole('SUPPLIER'),

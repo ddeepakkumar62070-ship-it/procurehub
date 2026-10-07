@@ -7,16 +7,22 @@ jest.mock('../src/services/inventoryReservationService', () => ({
   confirmForOrder: jest.fn().mockResolvedValue(1),
   releaseForOrder: jest.fn().mockResolvedValue(1),
   consumeForOrder: jest.fn().mockResolvedValue(1),
+  restoreReturnedInventory: jest.fn().mockResolvedValue(1),
   expireOverdueReservations: jest.fn(),
 }));
 jest.mock('../src/services/invoiceService', () => ({
   createForOrder: jest.fn().mockResolvedValue({ id: 'invoice-id' }),
+}));
+jest.mock('../src/services/notificationService', () => ({
+  createInTransaction: jest.fn(),
 }));
 
 const { pool } = require('../src/config/db');
 const orderTransitionService = require('../src/services/orderTransitionService');
 const inventoryReservationService = require('../src/services/inventoryReservationService');
 const invoiceService = require('../src/services/invoiceService');
+const notificationService = require('../src/services/notificationService');
+const env = require('../src/config/env');
 
 describe('OrderTransitionService', () => {
   let client;
@@ -211,6 +217,74 @@ describe('OrderTransitionService', () => {
 
     expect(inventoryReservationService.consumeForOrder).toHaveBeenCalledWith(client, 'order-id');
     expect(client.query.mock.calls.at(-1)[0]).toBe('COMMIT');
+  });
+
+  it('restores consumed inventory only when the supplier accepts a return', async () => {
+    client.query
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        rows: [{ id: 'order-id', buyer_user_id: 'buyer-id', supplier_user_id: 'supplier-id', status: 'RETURN_REQUESTED' }],
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ rows: [{ id: 'order-id', status: 'RETURNED' }] })
+      .mockResolvedValueOnce({});
+
+    await orderTransitionService.transitionPurchaseOrder(
+      'order-id',
+      { id: 'supplier-id', roles: ['SUPPLIER'] },
+      { status: 'RETURNED' }
+    );
+
+    expect(inventoryReservationService.restoreReturnedInventory).toHaveBeenCalledWith(client, 'order-id');
+    expect(client.query.mock.calls[2][0]).toContain('purchase_order_audit_logs');
+    expect(client.query.mock.calls[2][1]).toEqual([
+      'order-id', 'RETURN_REQUESTED', 'RETURNED', 'supplier-id', 'SUPPLIER', null,
+    ]);
+    expect(client.query.mock.calls.at(-1)[0]).toBe('COMMIT');
+  });
+
+  it('does not restore inventory again when RETURNED is submitted a second time', async () => {
+    client.query
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        rows: [{ id: 'order-id', buyer_user_id: 'buyer-id', supplier_user_id: 'supplier-id', status: 'RETURNED' }],
+      })
+      .mockResolvedValueOnce({});
+
+    await expect(orderTransitionService.transitionPurchaseOrder(
+      'order-id',
+      { id: 'supplier-id', roles: ['SUPPLIER'] },
+      { status: 'RETURNED' }
+    )).rejects.toMatchObject({ code: 'INVALID_ORDER_TRANSITION' });
+
+    expect(inventoryReservationService.restoreReturnedInventory).not.toHaveBeenCalled();
+    expect(client.query.mock.calls.at(-1)[0]).toBe('ROLLBACK');
+  });
+
+  it('sends supplier fulfilment updates only to the buyer', async () => {
+    const priorNodeEnv = env.nodeEnv;
+    env.nodeEnv = 'development';
+    client.query
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        rows: [{ id: 'order-id', order_number: 'PO-1', buyer_user_id: 'buyer-id', supplier_user_id: 'supplier-id', status: 'PO_CREATED' }],
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ rows: [{ id: 'order-id', status: 'CONFIRMED' }] })
+      .mockResolvedValueOnce({});
+
+    try {
+      await orderTransitionService.transitionPurchaseOrder(
+        'order-id',
+        { id: 'supplier-id', roles: ['SUPPLIER'] },
+        { status: 'CONFIRMED' }
+      );
+      expect(notificationService.createInTransaction).toHaveBeenCalledWith(client, expect.objectContaining({
+        userId: 'buyer-id', type: 'ORDER_CONFIRMED',
+      }));
+    } finally {
+      env.nodeEnv = priorNodeEnv;
+    }
   });
 
   it('creates the invoice in the same transaction as the invoice-generated transition', async () => {

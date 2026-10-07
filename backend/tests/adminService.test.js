@@ -5,17 +5,8 @@ jest.mock('../src/config/db', () => ({
 jest.mock('../src/services/adminAuditService', () => ({
   record: jest.fn(),
 }));
-jest.mock('../src/config/redisData', () => ({
-  invalidateReadCache: jest.fn(),
-}));
-jest.mock('../src/config/socket', () => ({
-  disconnectUser: jest.fn(),
-}));
-
 const { pool } = require('../src/config/db');
 const adminAuditService = require('../src/services/adminAuditService');
-const redisData = require('../src/config/redisData');
-const socketService = require('../src/config/socket');
 const adminService = require('../src/services/adminService');
 
 const adminId = 'admin-id';
@@ -60,7 +51,7 @@ describe('admin audit transactions', () => {
     ]);
   });
 
-  it('revokes refresh tokens and disconnects sockets when deactivating a user', async () => {
+  it('revokes refresh tokens when deactivating a user', async () => {
     const before = { id: entityId, email: 'user@example.com', is_active: true };
     const after = { id: entityId, email: 'user@example.com', is_active: false };
     const client = mockTransaction([
@@ -80,11 +71,9 @@ describe('admin audit transactions', () => {
       expect.stringContaining('UPDATE refresh_tokens'),
       'COMMIT',
     ]);
-    expect(socketService.disconnectUser).toHaveBeenCalledWith(entityId);
-    expect(redisData.invalidateReadCache).toHaveBeenCalledTimes(1);
   });
 
-  it('audits supplier suspension and invalidates marketplace caches', async () => {
+  it('audits supplier suspension', async () => {
     const before = { user_id: entityId, is_suspended: false, suspension_reason: null };
     const after = {
       user_id: entityId,
@@ -113,10 +102,9 @@ describe('admin audit transactions', () => {
       before: { isSuspended: false, reason: null },
       after: { isSuspended: true, reason: 'Repeated policy violations' },
     }));
-    expect(redisData.invalidateReadCache).toHaveBeenCalledTimes(1);
   });
 
-  it('invalidates marketplace caches after supplier verification changes', async () => {
+  it('audits supplier verification changes', async () => {
     const before = {
       user_id: entityId,
       verification_status: 'PENDING',
@@ -141,7 +129,6 @@ describe('admin audit transactions', () => {
       action: 'SUPPLIER_VERIFICATION_UPDATED',
       entityId,
     }));
-    expect(redisData.invalidateReadCache).toHaveBeenCalledTimes(1);
   });
 
   it('writes category creation and its audit event atomically', async () => {
@@ -170,6 +157,5 @@ describe('admin audit transactions', () => {
       entityId,
       after: category,
     });
-    expect(redisData.invalidateReadCache).toHaveBeenCalledTimes(1);
   });
 });

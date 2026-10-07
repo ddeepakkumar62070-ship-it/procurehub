@@ -3,11 +3,12 @@ const controller = require('../controllers/orderController');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { validateBody } = require('../middleware/validateMiddleware');
 const { validateParams, validateQuery } = require('../middleware/validateQueryMiddleware');
+const expireReservations = require('../middleware/expireReservationsMiddleware');
 const schemas = require('../validators/orderValidator');
 
 const router = express.Router();
 
-router.use(requireAuth, requireRole('BUYER', 'SUPPLIER'));
+router.use(requireAuth, requireRole('BUYER', 'SUPPLIER'), expireReservations);
 router.post(
   '/',
   requireRole('BUYER'),

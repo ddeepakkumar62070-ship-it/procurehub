@@ -3,11 +3,12 @@ const catalogController = require('../controllers/catalogController');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const { validateBody } = require('../middleware/validateMiddleware');
 const { validateParams } = require('../middleware/validateQueryMiddleware');
+const expireReservations = require('../middleware/expireReservationsMiddleware');
 const schemas = require('../validators/catalogValidator');
 
 const router = express.Router();
 
-router.use(requireAuth, requireRole('SUPPLIER'));
+router.use(requireAuth, requireRole('SUPPLIER'), expireReservations);
 router.get('/mine', catalogController.listSupplierProducts);
 router.post(
   '/',

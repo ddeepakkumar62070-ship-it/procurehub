@@ -307,6 +307,7 @@ export function AnalyticsPage() {
 
 export function DisputePage({ admin = false }) {
   const toast = useToast();
+  const user = useAuthStore((state) => state.user);
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('');
   const [result, setResult] = useState({ data: [], total: 0, totalPages: 0 });
@@ -318,6 +319,8 @@ export function DisputePage({ admin = false }) {
   const [resolution, setResolution] = useState('');
   const [nextStatus, setNextStatus] = useState('UNDER_REVIEW');
   const [saving, setSaving] = useState(false);
+  const role = user?.roles?.includes('SUPPLIER') ? 'SUPPLIER' : 'BUYER';
+  const disputeTypes = result.allowed_dispute_types?.[role] || [];
   const load = useCallback(() => (admin ? adminApi.disputes({ page, limit: 20, ...(status && { status }) })
     : disputeApi.list({ page, limit: 20, ...(status && { status }) }))
     .then(setResult)
@@ -333,9 +336,9 @@ export function DisputePage({ admin = false }) {
     setSaving(true);
     setError('');
     try {
-      await disputeApi.create(form);
+      await disputeApi.create({ ...form, type: disputeTypes.includes(form.type) ? form.type : disputeTypes[0] });
       toast('Dispute opened.');
-      setForm({ orderId: '', type: 'ORDER_NOT_RECEIVED', title: '', description: '' });
+      setForm({ orderId: '', type: disputeTypes[0] || '', title: '', description: '' });
       await load();
     } catch (submitError) {
       setError(requestMessage(submitError, 'Could not open dispute'));
@@ -363,11 +366,11 @@ export function DisputePage({ admin = false }) {
   return (
     <section className="page-stack">
       <PageHeader eyebrow={admin ? 'Case management' : 'Order support'} title="Disputes" description={admin ? 'Review and resolve buyer and supplier disputes.' : 'Open a case on an order and track its resolution.'} />
-      {!admin && <form className="entity-card form-stack" onSubmit={submit}>
+      {!admin && result.allowed_actions?.includes('CREATE_DISPUTE') && <form className="entity-card form-stack" onSubmit={submit}>
         <h2>Open a dispute</h2>
         <label>Order<select required value={form.orderId} onChange={(event) => setForm({ ...form, orderId: event.target.value })}><option value="">Select an order</option>
           {orders.map((order) => <option key={order.id} value={order.id}>{order.order_number} · {order.request_title}</option>)}</select></label>
-        <label>Type<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>{['ORDER_NOT_RECEIVED', 'DAMAGED_PRODUCT', 'WRONG_QUANTITY', 'WRONG_PRODUCT', 'PAYMENT_ISSUE', 'OTHER'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}</select></label>
+        <label>Type<select required value={disputeTypes.includes(form.type) ? form.type : (disputeTypes[0] || '')} onChange={(event) => setForm({ ...form, type: event.target.value })}>{disputeTypes.map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}</select></label>
         <label>Title<input required minLength={3} maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
         <label>Description<textarea required minLength={10} maxLength={5000} rows="4" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
         <button className="primary-button" disabled={saving || !orders.length}>{saving ? 'Opening…' : 'Open dispute'}</button>

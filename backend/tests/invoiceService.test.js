@@ -80,6 +80,25 @@ describe('InvoiceService', () => {
     expect(paymentProvider.initiatePayment).not.toHaveBeenCalled();
   });
 
+  it('rejects payment until the supplier has moved the order to PAYMENT_PENDING', async () => {
+    client.query
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ rows: [{ id: 'order-id', order_status: 'DELIVERED' }] })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'invoice-id', order_id: 'order-id', buyer_id: 'buyer-id', supplier_id: 'supplier-id',
+          currency: 'USD', total: '100.00', amount_paid: '0.00', status: 'UNPAID',
+        }],
+      })
+      .mockResolvedValueOnce({});
+
+    await expect(invoiceService.payInvoice(
+      'invoice-id', { id: 'buyer-id', roles: ['BUYER'] }, undefined
+    )).rejects.toMatchObject({ code: 'ORDER_NOT_READY_FOR_PAYMENT' });
+    expect(paymentProvider.initiatePayment).not.toHaveBeenCalled();
+    expect(client.query.mock.calls.at(-1)[0]).toBe('ROLLBACK');
+  });
+
   it('simulates a partial then full payment and only exposes safe provider fields', async () => {
     client.query
       .mockResolvedValueOnce({})

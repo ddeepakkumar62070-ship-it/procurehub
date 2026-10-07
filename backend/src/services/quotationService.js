@@ -1,9 +1,7 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, NotFoundError, ValidationError } = require('../utils/errors');
 const orderTransitionService = require('./orderTransitionService');
-const jobOutboxService = require('./jobOutboxService');
 const env = require('../config/env');
-const redisData = require('../config/redisData');
 const notificationService = require('./notificationService');
 
 async function withTransaction(callback) {
@@ -257,6 +255,7 @@ async function listSupplierQuotations(supplierUserId, filters) {
      WHERE supplier_user_id = $1 AND status = 'SUBMITTED' AND valid_until <= NOW()`,
     [supplierUserId]
   );
+  if (env.nodeEnv !== 'test') await notifyExpiringQuotations(supplierUserId);
   const values = [supplierUserId];
   const statusClause = filters.status ? `AND q.status = $2` : '';
   if (filters.status) values.push(filters.status);
@@ -335,7 +334,7 @@ async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
   }
 
   const selectedResult = await client.query(
-    `SELECT id, supplier_user_id, status, valid_until
+    `SELECT id, supplier_user_id, status, valid_until, valid_until <= NOW() AS is_expired
      FROM quotations
      WHERE id = $1 AND purchase_request_id = $2
      FOR UPDATE`,
@@ -345,7 +344,7 @@ async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
   if (selected.status !== 'SUBMITTED') {
     return { failure: `QUOTATION_${selected.status}` };
   }
-  if (new Date(selected.valid_until).getTime() <= Date.now()) {
+  if (selected.is_expired) {
     await client.query(
       `UPDATE quotations
        SET status = 'EXPIRED', expired_at = NOW(), updated_at = NOW()
@@ -409,9 +408,6 @@ async function acceptQuotationInTransaction(client, buyerUserId, quotationId) {
       }))
     );
   }
-  if (env.nodeEnv !== 'test') {
-    await jobOutboxService.addOrderStatusNotifications(client, purchaseOrder.id, 'PO_CREATED');
-  }
   return { quotation: accepted.rows[0], purchaseOrder };
 }
 
@@ -438,7 +434,6 @@ async function acceptQuotation(buyerUserId, quotationId) {
     acceptQuotationInTransaction(client, buyerUserId, quotationId)
   ));
   throwAcceptanceFailure(result.failure);
-  await redisData.invalidateReadCache();
   return { ...result.quotation, purchaseOrder: result.purchaseOrder };
 }
 
@@ -524,26 +519,19 @@ async function expireOverdueById(quotationId) {
   );
 }
 
-async function expireOverdueQuotations() {
-  const result = await query(
-    `UPDATE quotations
-     SET status = 'EXPIRED', expired_at = NOW(), updated_at = NOW()
-     WHERE status = 'SUBMITTED' AND valid_until <= NOW()
-     RETURNING id`,
-  );
-  return result.rowCount;
-}
-
-async function notifyExpiringQuotations() {
+async function notifyExpiringQuotations(supplierUserId) {
   return notificationService.withTransaction(async (client) => {
+    const supplierClause = supplierUserId ? 'AND q.supplier_user_id = $1' : '';
     const result = await client.query(
       `SELECT q.id, q.quotation_number, q.supplier_user_id, q.valid_until
        FROM quotations q
        WHERE q.status = 'SUBMITTED'
          AND q.valid_until > NOW()
          AND q.valid_until <= NOW() + INTERVAL '24 hours'
+         ${supplierClause}
        ORDER BY q.valid_until, q.id
-       FOR UPDATE OF q SKIP LOCKED`
+       FOR UPDATE OF q SKIP LOCKED`,
+      supplierUserId ? [supplierUserId] : []
     );
     const created = await notificationService.createManyInTransaction(
       client,
@@ -571,6 +559,5 @@ module.exports = {
   rejectQuotation,
   expireOverdueForRequest,
   expireOverdueById,
-  expireOverdueQuotations,
   notifyExpiringQuotations,
 };

@@ -1,7 +1,6 @@
 const orderTransitionService = require('../services/orderTransitionService');
 const idempotencyService = require('../services/idempotencyService');
 const quotationService = require('../services/quotationService');
-const redisData = require('../config/redisData');
 const schemas = require('../validators/orderValidator');
 
 function paginatedResponse(result) {
@@ -53,7 +52,6 @@ async function create(req, res) {
       };
     },
   });
-  await redisData.invalidateReadCache();
   return res.status(result.statusCode).json(result.body);
 }
 

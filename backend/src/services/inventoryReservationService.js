@@ -173,6 +173,54 @@ async function consumeForOrder(client, orderId) {
   return reservations.length;
 }
 
+async function restoreReturnedInventory(client, orderId) {
+  const reservations = await client.query(
+    `SELECT id, inventory_id, quantity
+     FROM inventory_reservations
+     WHERE purchase_order_id = $1 AND status = 'CONSUMED'
+     ORDER BY inventory_id, id
+     FOR UPDATE`,
+    [orderId]
+  );
+
+  for (const reservation of reservations.rows) {
+    const locked = await client.query(
+      'SELECT id FROM inventory WHERE id = $1 FOR UPDATE',
+      [reservation.inventory_id]
+    );
+    if (!locked.rows[0]) throw new NotFoundError('Reserved inventory record not found');
+
+    const updated = await client.query(
+      `UPDATE inventory
+       SET total_quantity = total_quantity + $1,
+           available_quantity = available_quantity + $1,
+           version = version + 1,
+           last_updated_at = NOW()
+       WHERE id = $2
+       RETURNING id`,
+      [reservation.quantity, reservation.inventory_id]
+    );
+    if (updated.rowCount !== 1) {
+      throw new ConflictError('Returned inventory quantities are inconsistent');
+    }
+
+    const result = await client.query(
+      `UPDATE inventory_reservations
+       SET status = 'RETURNED',
+           consumed_at = NULL,
+           returned_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $1 AND status = 'CONSUMED'`,
+      [reservation.id]
+    );
+    if (result.rowCount !== 1) {
+      continue;
+    }
+  }
+
+  return reservations.rowCount;
+}
+
 async function expireOverdueReservations() {
   const candidates = await query(
     `SELECT DISTINCT purchase_order_id
@@ -238,5 +286,6 @@ module.exports = {
   confirmForOrder,
   releaseForOrder,
   consumeForOrder,
+  restoreReturnedInventory,
   expireOverdueReservations,
 };

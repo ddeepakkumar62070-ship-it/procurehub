@@ -2,10 +2,6 @@ jest.mock('../src/config/db', () => ({
   pool: { connect: jest.fn() },
   query: jest.fn(),
 }));
-jest.mock('../src/config/redisData', () => ({
-  getCacheVersion: jest.fn().mockResolvedValue(null),
-}));
-
 const { query } = require('../src/config/db');
 const catalogService = require('../src/services/catalogService');
 

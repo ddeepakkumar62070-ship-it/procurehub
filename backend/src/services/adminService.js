@@ -1,7 +1,6 @@
 const { pool, query } = require('../config/db');
 const { ConflictError, NotFoundError, ValidationError } = require('../utils/errors');
 const adminAuditService = require('./adminAuditService');
-const redisData = require('../config/redisData');
 
 async function withTransaction(callback) {
   const client = await pool.connect();
@@ -101,8 +100,6 @@ async function updateUserActive(userId, active, actorUserId) {
     });
     return after;
   });
-  if (!active) require('../config/socket').disconnectUser(userId);
-  await redisData.invalidateReadCache();
   return user;
 }
 
@@ -177,7 +174,6 @@ async function updateSupplierVerification(userId, status, actorUserId) {
     });
     return after;
   });
-  await redisData.invalidateReadCache();
   return supplier;
 }
 
@@ -215,8 +211,6 @@ async function updateSupplierSuspension(userId, isSuspended, reason, actorUserId
     });
     return after;
   });
-  require('../config/socket').disconnectUser(userId);
-  await redisData.invalidateReadCache();
   return supplier;
 }
 
@@ -251,7 +245,6 @@ async function createCategory(input, actorUserId) {
       });
       return category;
     });
-    await redisData.invalidateReadCache();
     return category;
   } catch (error) {
     if (error.code === '23505') throw new ConflictError('A category with this slug already exists', 'CATALOG_ITEM_ALREADY_EXISTS');
@@ -298,7 +291,6 @@ async function updateCategory(id, input, actorUserId) {
       });
       return after;
     });
-    await redisData.invalidateReadCache();
     return category;
   } catch (error) {
     if (error.code === '23505') throw new ConflictError('A category with this slug already exists', 'CATALOG_ITEM_ALREADY_EXISTS');
@@ -331,7 +323,6 @@ async function deactivateCategory(id, actorUserId) {
     });
     return { id, deactivated: true };
   });
-  await redisData.invalidateReadCache();
   return category;
 }
 
@@ -357,7 +348,6 @@ async function createProduct(input, actorUserId) {
       });
       return created;
     });
-    await redisData.invalidateReadCache();
     return product;
   } catch (error) {
     if (error.code === '23505') throw new ConflictError('A product with this SKU already exists', 'CATALOG_ITEM_ALREADY_EXISTS');
@@ -411,7 +401,6 @@ async function updateProduct(id, input, actorUserId) {
       });
       return after;
     });
-    await redisData.invalidateReadCache();
     return product;
   } catch (error) {
     if (error.code === '23505') throw new ConflictError('A product with this SKU already exists', 'CATALOG_ITEM_ALREADY_EXISTS');
@@ -444,7 +433,6 @@ async function deactivateProduct(id, actorUserId) {
     });
     return { id, deactivated: true };
   });
-  await redisData.invalidateReadCache();
   return product;
 }
 

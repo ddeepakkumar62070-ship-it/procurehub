@@ -9,6 +9,22 @@ const DISPUTE_TRANSITIONS = {
   REJECTED: [],
 };
 
+const DISPUTE_TYPES_BY_ROLE = Object.freeze({
+  BUYER: ['ORDER_NOT_RECEIVED', 'DAMAGED_PRODUCT', 'WRONG_QUANTITY', 'WRONG_PRODUCT', 'OTHER'],
+  SUPPLIER: ['PAYMENT_ISSUE', 'OTHER'],
+});
+
+function roleForOrderParty(order, user) {
+  if (order.buyer_user_id === user.id && user.roles.includes('BUYER')) return 'BUYER';
+  if (order.supplier_user_id === user.id && user.roles.includes('SUPPLIER')) return 'SUPPLIER';
+  return null;
+}
+
+function allowedActions(role, dispute) {
+  if (role === 'ADMIN') return DISPUTE_TRANSITIONS[dispute.status].length ? ['UPDATE_STATUS'] : [];
+  return ['VIEW'];
+}
+
 async function create(user, input) {
   const client = await pool.connect();
   try {
@@ -20,7 +36,12 @@ async function create(user, input) {
        FOR SHARE`,
       [input.orderId, user.id]
     );
-    if (!order.rows[0]) throw new NotFoundError('Purchase order not found');
+    const purchaseOrder = order.rows[0];
+    if (!purchaseOrder) throw new NotFoundError('Purchase order not found');
+    const role = roleForOrderParty(purchaseOrder, user);
+    if (!role || !DISPUTE_TYPES_BY_ROLE[role].includes(input.type)) {
+      throw new ForbiddenError('Your role cannot open this type of dispute');
+    }
     const result = await client.query(
       `INSERT INTO order_disputes (order_id, opened_by, type, title, description)
        VALUES ($1, $2, $3, $4, $5)
@@ -34,7 +55,7 @@ async function create(user, input) {
       [result.rows[0].id, user.id]
     );
     await client.query('COMMIT');
-    return result.rows[0];
+    return { ...result.rows[0], allowed_actions: allowedActions(role, result.rows[0]) };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -80,7 +101,19 @@ async function list(user, filters, admin = false) {
     [...values, filters.limit, (filters.page - 1) * filters.limit]
   );
   const total = count.rows[0].total;
-  return { data: result.rows, page: filters.page, limit: filters.limit, total, totalPages: Math.ceil(total / filters.limit) };
+  const role = admin ? 'ADMIN' : null;
+  return {
+    data: result.rows.map((dispute) => ({ ...dispute, allowed_actions: allowedActions(role, dispute) })),
+    page: filters.page,
+    limit: filters.limit,
+    total,
+    totalPages: Math.ceil(total / filters.limit),
+    allowed_actions: admin ? ['UPDATE_STATUS'] : ['CREATE_DISPUTE'],
+    allowed_dispute_types: admin ? [] : Object.fromEntries(
+      user.roles.filter((candidate) => DISPUTE_TYPES_BY_ROLE[candidate])
+        .map((candidate) => [candidate, DISPUTE_TYPES_BY_ROLE[candidate]])
+    ),
+  };
 }
 
 async function updateStatus(actor, id, input) {
@@ -138,4 +171,4 @@ async function updateStatus(actor, id, input) {
   }
 }
 
-module.exports = { create, list, updateStatus };
+module.exports = { create, list, updateStatus, DISPUTE_TYPES_BY_ROLE };

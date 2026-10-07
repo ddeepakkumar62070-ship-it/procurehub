@@ -14,9 +14,9 @@ const { pool, query } = require('../src/config/db');
 const orderTransitionService = require('../src/services/orderTransitionService');
 const {
   submitQuotation,
+  listSupplierQuotations,
   acceptQuotation,
   rejectQuotation,
-  expireOverdueQuotations,
 } = require('../src/services/quotationService');
 
 describe('Quotation transactional state changes', () => {
@@ -155,6 +155,7 @@ describe('Quotation transactional state changes', () => {
           id: 'quotation-id',
           status: 'SUBMITTED',
           valid_until: new Date(Date.now() + 60_000),
+          is_expired: false,
         }],
       })
       .mockResolvedValueOnce({
@@ -190,6 +191,7 @@ describe('Quotation transactional state changes', () => {
           id: 'quotation-id',
           status: 'SUBMITTED',
           valid_until: new Date(Date.now() + 60_000),
+          is_expired: false,
         }],
       })
       .mockResolvedValueOnce({
@@ -214,7 +216,12 @@ describe('Quotation transactional state changes', () => {
       .mockResolvedValueOnce({ rows: [{ purchase_request_id: 'request-id' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'request-id', status: 'QUOTATION_RECEIVED' }] })
       .mockResolvedValueOnce({
-        rows: [{ id: 'quotation-id', status: 'SUBMITTED', valid_until: new Date(Date.now() - 60_000) }],
+        rows: [{
+          id: 'quotation-id',
+          status: 'SUBMITTED',
+          valid_until: new Date(Date.now() - 60_000),
+          is_expired: true,
+        }],
       })
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({});
@@ -258,9 +265,15 @@ describe('Quotation transactional state changes', () => {
     expect(client.query.mock.calls.at(-1)[0]).toBe('COMMIT');
   });
 
-  it('expires all overdue submitted quotations through the background sweep', async () => {
-    query.mockResolvedValue({ rowCount: 4 });
-    await expect(expireOverdueQuotations()).resolves.toBe(4);
+  it('persists expired quotations when a supplier requests quotation data', async () => {
+    query
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(listSupplierQuotations('supplier-id', { page: 1, limit: 20 }))
+      .resolves.toMatchObject({ data: [], total: 0 });
+
     expect(query.mock.calls[0][0]).toContain("status = 'EXPIRED'");
     expect(query.mock.calls[0][0]).toContain('valid_until <= NOW()');
   });

@@ -46,7 +46,7 @@ describe('dispute service transaction handling', () => {
       type: 'ORDER_NOT_RECEIVED',
       title: 'Late shipment',
       description: 'The shipment has not moved for multiple days.',
-    })).resolves.toEqual(dispute);
+    })).resolves.toEqual({ ...dispute, allowed_actions: ['VIEW'] });
 
     expect(calls[0]).toBe('BEGIN');
     expect(calls[1]).toContain('FOR SHARE');
@@ -72,6 +72,23 @@ describe('dispute service transaction handling', () => {
     })).rejects.toMatchObject({ statusCode: 404 });
     expect(calls).toEqual(['BEGIN', expect.stringContaining('FOR SHARE'), 'ROLLBACK']);
     expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a dispute type that is not allowed for the authenticated party role', async () => {
+    const supplier = { id: 'supplier-id', roles: ['SUPPLIER'] };
+    const { calls } = transactionClient([
+      { rows: [] },
+      { rows: [{ id: orderId, buyer_user_id: buyer.id, supplier_user_id: supplier.id }] },
+      { rows: [] },
+    ]);
+
+    await expect(disputeService.create(supplier, {
+      orderId,
+      type: 'DAMAGED_PRODUCT',
+      title: 'Damaged item',
+      description: 'The supplier cannot create buyer quality claims.',
+    })).rejects.toMatchObject({ statusCode: 403 });
+    expect(calls).toEqual(['BEGIN', expect.stringContaining('FOR SHARE'), 'ROLLBACK']);
   });
 
   it('rejects invalid status transitions before updating the dispute', async () => {

@@ -31,5 +31,9 @@ describe('OrderStateMachine', () => {
     expect(() => assertPermission('SHIPPED', 'BUYER')).toThrow(
       'BUYER users cannot transition a purchase order to SHIPPED'
     );
+    expect(() => assertPermission('RETURNED', 'SUPPLIER')).not.toThrow();
+    expect(() => assertPermission('RETURNED', 'BUYER')).toThrow(
+      'BUYER users cannot transition a purchase order to RETURNED'
+    );
   });
 });

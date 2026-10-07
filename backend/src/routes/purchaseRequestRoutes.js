@@ -6,10 +6,11 @@ const { validateParams, validateQuery } = require('../middleware/validateQueryMi
 const schemas = require('../validators/purchaseRequestValidator');
 const quotationController = require('../controllers/quotationController');
 const quotationSchemas = require('../validators/quotationValidator');
+const expireReservations = require('../middleware/expireReservationsMiddleware');
 
 const router = express.Router();
 
-router.use(requireAuth);
+router.use(requireAuth, expireReservations);
 
 router.post(
   '/',
