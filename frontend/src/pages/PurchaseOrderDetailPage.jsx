@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { orderApi } from '../api/orderApi';
 import { invoiceApi } from '../api/invoiceApi';
+import { supplierApi } from '../api/supplierApi';
 
 function PurchaseOrderDetailPage({ supplierView = false }) {
   const { id } = useParams();
@@ -11,6 +12,11 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [reviewInfo, setReviewInfo] = useState(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [isReviewSaving, setIsReviewSaving] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState('');
   const listPath = supplierView ? '/supplier/orders' : '/purchase-orders';
 
   useEffect(() => {
@@ -31,6 +37,15 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
       active = false;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (supplierView) return undefined;
+    let active = true;
+    supplierApi.getOrderReview(id)
+      .then((result) => { if (active) setReviewInfo(result); })
+      .catch(() => { if (active) setReviewInfo(null); });
+    return () => { active = false; };
+  }, [id, supplierView]);
 
   async function handleTransition(event) {
     event.preventDefault();
@@ -60,6 +75,23 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
       setError(requestError.response?.data?.error?.message || 'Could not record payment');
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleReview(event) {
+    event.preventDefault();
+    setError('');
+    setReviewMessage('');
+    setIsReviewSaving(true);
+    try {
+      await supplierApi.createOrderReview(id, { rating: Number(reviewRating), ...(reviewText.trim() && { review: reviewText.trim() }) });
+      setReviewInfo(await supplierApi.getOrderReview(id));
+      setReviewText('');
+      setReviewMessage('Supplier review submitted.');
+    } catch (requestError) {
+      setError(requestError.response?.data?.error?.message || 'Could not submit supplier review');
+    } finally {
+      setIsReviewSaving(false);
     }
   }
 
@@ -140,6 +172,25 @@ function PurchaseOrderDetailPage({ supplierView = false }) {
               <button className="primary-button" type="button" disabled={isSaving} onClick={handlePayment}>
                 {isSaving ? 'Processing…' : 'Pay invoice'}
               </button>
+            </section>}
+            {!supplierView && reviewInfo?.eligible && <section className="request-detail-section">
+              <h2>Rate supplier</h2>
+              {reviewInfo.review ? (
+                <p><strong>{'★'.repeat(reviewInfo.review.rating)}{'☆'.repeat(5 - reviewInfo.review.rating)}</strong>{reviewInfo.review.review && ` · ${reviewInfo.review.review}`}</p>
+              ) : (
+                <form className="form-stack" onSubmit={handleReview}>
+                  <label>Rating
+                    <select value={reviewRating} onChange={(event) => setReviewRating(event.target.value)}>
+                      {[5, 4, 3, 2, 1].map((rating) => <option value={rating} key={rating}>{'★'.repeat(rating)}{'☆'.repeat(5 - rating)} ({rating}/5)</option>)}
+                    </select>
+                  </label>
+                  <label>Write a review (optional)
+                    <textarea rows="3" maxLength="2000" value={reviewText} onChange={(event) => setReviewText(event.target.value)} />
+                  </label>
+                  <button className="primary-button" disabled={isReviewSaving}>{isReviewSaving ? 'Submitting…' : 'Submit review'}</button>
+                </form>
+              )}
+              {reviewMessage && <p className="success-message" role="status">{reviewMessage}</p>}
             </section>}
             <section className="request-detail-section">
               <h2>Order history</h2>

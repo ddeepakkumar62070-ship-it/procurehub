@@ -81,6 +81,26 @@ describe('Authentication and profile routes', () => {
     expect(authService.refresh).not.toHaveBeenCalled();
   });
 
+  it('rotates a valid refresh-cookie session and returns a new access token', async () => {
+    authService.refresh.mockResolvedValue({
+      accessToken: 'rotated-access-token',
+      refreshToken: 'rotated-refresh-token',
+      user: { id: user.id, email: user.email, roles: ['BUYER'] },
+    });
+
+    const response = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', `${env.refreshCookieName}=valid-refresh-token`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual({
+      accessToken: 'rotated-access-token',
+      user: { id: user.id, email: user.email, roles: ['BUYER'] },
+    });
+    expect(response.headers['set-cookie'][0]).toContain(`${env.refreshCookieName}=rotated-refresh-token`);
+    expect(authService.refresh).toHaveBeenCalledWith('valid-refresh-token');
+  });
+
   it('rejects public admin registration before calling the service', async () => {
     const response = await request(app).post('/api/auth/register').send({
       firstName: 'Platform',

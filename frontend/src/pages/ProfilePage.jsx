@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { supplierApi } from '../api/supplierApi';
 
 const emptyForm = {
   firstName: '',
@@ -25,6 +26,7 @@ function ProfilePage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [reviews, setReviews] = useState([]);
 
   useEffect(() => {
     loadProfile().catch((requestError) => {
@@ -88,6 +90,13 @@ function ProfilePage() {
   const isSupplier = profile?.roles.includes('SUPPLIER');
   const canEditBusinessProfile = isBuyer || isSupplier;
 
+  useEffect(() => {
+    if (!isSupplier) return undefined;
+    let active = true;
+    supplierApi.listMyReviews().then((data) => { if (active) setReviews(data); }).catch(() => {});
+    return () => { active = false; };
+  }, [isSupplier]);
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -142,6 +151,12 @@ function ProfilePage() {
             ) : (
               <p className="dashboard-note">Administrator accounts do not have a buyer or supplier business profile.</p>
             )}
+            {isSupplier && <section className="request-detail-section">
+              <h2>Received reviews</h2>
+              {reviews.length === 0 ? <p className="muted">No reviews yet.</p> : <ul className="order-audit-list">
+                {reviews.map((review) => <li key={review.id}><strong>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</strong><small>{review.buyer_business_name} · {review.order_number}{review.review_text && ` · ${review.review_text}`}</small></li>)}
+              </ul>}
+            </section>}
           </>
         )}
         {!profile && !error && <p className="muted">Loading profile…</p>}

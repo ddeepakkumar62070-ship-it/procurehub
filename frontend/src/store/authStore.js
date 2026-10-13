@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { authApi } from '../api/authApi';
 
+let bootstrapRequest;
+
 export const useAuthStore = create((set) => ({
   user: null,
   accessToken: null,
@@ -12,7 +14,10 @@ export const useAuthStore = create((set) => ({
 
   bootstrap: async () => {
     try {
-      const session = await authApi.refresh();
+      bootstrapRequest ||= authApi.refresh().finally(() => {
+        bootstrapRequest = undefined;
+      });
+      const session = await bootstrapRequest;
       set({ user: session.user, accessToken: session.accessToken });
     } catch (error) {
       set({ user: null, accessToken: null, profile: null });

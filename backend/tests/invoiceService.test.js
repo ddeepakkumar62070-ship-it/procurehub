@@ -202,6 +202,8 @@ describe('InvoiceService', () => {
           id: 'invoice-id',
           invoice_number: 'INV-20261002-00000001',
           order_number: 'PO-20261002-00000001',
+          order_date: '2026-09-28T14:30:00.000Z',
+          expected_delivery_date: '2026-10-15',
           currency: 'USD',
           subtotal: '30.00',
           tax: '0.00',
@@ -230,11 +232,24 @@ describe('InvoiceService', () => {
       }
       return { rows: [] };
     });
+    const invoice = await invoiceService.getInvoice(
+      'invoice-id',
+      { id: 'buyer-id', roles: ['BUYER'] }
+    );
+    expect(invoice.order_date).toBe('2026-09-28T14:30:00.000Z');
+    expect(invoice.expected_delivery_date).toBe('2026-10-15');
+
     const pdf = await invoiceService.getInvoicePdf(
       'invoice-id',
       { id: 'buyer-id', roles: ['BUYER'] }
     );
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
     expect(pdf.length).toBeGreaterThan(1000);
+  });
+
+  it('formats order and delivery calendar dates in UTC without shifting a day', () => {
+    expect(invoiceService.formatInvoiceDate(new Date('2026-09-28T23:30:00-10:00'))).toBe('9/29/2026');
+    expect(invoiceService.formatInvoiceDate('2026-10-15')).toBe('10/15/2026');
+    expect(invoiceService.formatInvoiceDate(null)).toBe('Not set');
   });
 });

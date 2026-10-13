@@ -122,9 +122,11 @@ export function SupplierDirectoryPage() {
 export function SupplierDetailPage() {
   const { id } = useParams();
   const [supplier, setSupplier] = useState(null);
+  const [reviews, setReviews] = useState([]);
   const [error, setError] = useState('');
   useEffect(() => {
     supplierApi.get(id).then(setSupplier).catch((loadError) => setError(requestMessage(loadError, 'Could not load supplier')));
+    supplierApi.listReviews(id).then(setReviews).catch(() => {});
   }, [id]);
   if (error) return <ErrorState message={error} />;
   if (!supplier) return <LoadingState label="Loading supplier details…" />;
@@ -136,6 +138,12 @@ export function SupplierDetailPage() {
         {supplier.address && <p>{supplier.address}</p>}
         {supplier.registration_number && <p className="muted">Registration: {supplier.registration_number}</p>}
       </article>
+      <section>
+        <h2>Reviews</h2>
+        {reviews.length === 0 ? <p className="muted">No reviews yet.</p> : <ul className="order-audit-list">
+          {reviews.map((review) => <li key={review.id}><strong>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</strong><small>{review.buyer_business_name} · {review.order_number}{review.review_text && ` · ${review.review_text}`}</small></li>)}
+        </ul>}
+      </section>
       <h2>Active products</h2>
       {supplier.products.length === 0 ? <EmptyState title="No active offers" />
         : <div className="table-scroll"><table><thead><tr><th>Product</th><th>SKU</th><th>Price</th><th>Lead time</th><th>Available</th></tr></thead>

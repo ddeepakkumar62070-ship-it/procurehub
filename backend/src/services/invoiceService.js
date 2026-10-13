@@ -120,7 +120,7 @@ async function fetchInvoice(invoiceId, user) {
     [invoiceId, user.id]
   );
   const invoiceResult = await query(
-    `SELECT i.*, po.order_number,
+    `SELECT i.*, po.order_number, po.created_at AS order_date, po.expected_delivery_date,
             buyer_business.name AS buyer_business_name,
             buyer_business.address AS buyer_address,
             buyer_business.city AS buyer_city,
@@ -296,6 +296,12 @@ function fromCents(cents) {
   return cents / 100;
 }
 
+function formatInvoiceDate(value) {
+  if (!value) return 'Not set';
+  const dateOnly = value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+  return new Date(`${dateOnly}T00:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC' });
+}
+
 function invoicePdf(invoice) {
   return new Promise((resolve, reject) => {
     const document = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true });
@@ -308,7 +314,7 @@ function invoicePdf(invoice) {
     const right = document.page.width - document.page.margins.right;
     const currency = invoice.currency;
     const money = (value) => `${currency} ${Number(value).toFixed(2)}`;
-    const date = (value) => new Date(`${String(value).slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC' });
+    const date = formatInvoiceDate;
 
     document.rect(0, 0, document.page.width, 148).fill('#102a43');
     document.fillColor('#ffffff').font('Helvetica-Bold').fontSize(25)
@@ -319,7 +325,8 @@ function invoicePdf(invoice) {
       .text(invoice.invoice_number, right - 210, 48, { width: 210, align: 'right' });
     document.font('Helvetica').fontSize(9).fillColor('#cbd5e1')
       .text(`Order ${invoice.order_number}`, right - 210, 72, { width: 210, align: 'right' })
-      .text(`Issued ${date(invoice.issue_date)}  |  Due ${date(invoice.due_date)}`, right - 260, 92, { width: 260, align: 'right' });
+      .text(`Order date ${date(invoice.order_date)}  |  Delivery ${invoice.expected_delivery_date ? date(invoice.expected_delivery_date) : 'Not set'}`, right - 330, 92, { width: 330, align: 'right' })
+      .text(`Issued ${date(invoice.issue_date)}  |  Due ${date(invoice.due_date)}`, right - 260, 110, { width: 260, align: 'right' });
 
     const partiesY = 178;
     document.fillColor('#0f172a').font('Helvetica-Bold').fontSize(9).text('BILL TO', 48, partiesY);
@@ -411,5 +418,6 @@ module.exports = {
   getInvoice: fetchInvoice,
   getInvoicePdf,
   payInvoice,
+  formatInvoiceDate,
   invoicePdf,
 };

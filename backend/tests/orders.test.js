@@ -15,6 +15,10 @@ jest.mock('../src/services/quotationService', () => ({
   acceptQuotationInTransaction: jest.fn(),
   throwAcceptanceFailure: jest.fn(),
 }));
+jest.mock('../src/services/supplierReviewService', () => ({
+  create: jest.fn(),
+  getForOrder: jest.fn(),
+}));
 
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
@@ -23,6 +27,7 @@ const authService = require('../src/services/authService');
 const orderTransitionService = require('../src/services/orderTransitionService');
 const idempotencyService = require('../src/services/idempotencyService');
 const quotationService = require('../src/services/quotationService');
+const supplierReviewService = require('../src/services/supplierReviewService');
 const env = require('../src/config/env');
 
 const buyer = {
@@ -110,6 +115,39 @@ describe('Purchase order routes', () => {
       supplier,
       { status: 'RETURNED', reason: 'Return received' }
     );
+  });
+
+  it('allows a buyer to submit one validated review for an eligible order', async () => {
+    authService.getActiveUser.mockResolvedValue(buyer);
+    supplierReviewService.create.mockResolvedValue({ id: 'review-id', rating: 5 });
+
+    const response = await request(app)
+      .post(`/api/orders/${orderId}/review`)
+      .set('Authorization', `Bearer ${tokenFor(buyer)}`)
+      .send({ rating: 5, review: 'Excellent fulfilment' });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.rating).toBe(5);
+    expect(supplierReviewService.create).toHaveBeenCalledWith(
+      orderId, buyer, { rating: 5, review: 'Excellent fulfilment' }
+    );
+  });
+
+  it('rejects supplier review submissions from a supplier and invalid ratings', async () => {
+    authService.getActiveUser.mockResolvedValue(supplier);
+    const supplierResponse = await request(app)
+      .post(`/api/orders/${orderId}/review`)
+      .set('Authorization', `Bearer ${tokenFor(supplier)}`)
+      .send({ rating: 5 });
+    expect(supplierResponse.status).toBe(403);
+
+    authService.getActiveUser.mockResolvedValue(buyer);
+    const invalidResponse = await request(app)
+      .post(`/api/orders/${orderId}/review`)
+      .set('Authorization', `Bearer ${tokenFor(buyer)}`)
+      .send({ rating: 6 });
+    expect(invalidResponse.status).toBe(400);
+    expect(supplierReviewService.create).toHaveBeenCalledTimes(0);
   });
 
   it('rejects arbitrary status updates and unsupported payload fields', async () => {
